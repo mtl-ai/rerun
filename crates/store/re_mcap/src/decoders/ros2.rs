@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use super::MessageDecoder;
 use crate::parsers::MessageParser;
 use crate::parsers::ros2msg::Ros2MessageParser;
+use crate::parsers::ros2msg::foxglove_msgs::CompressedVideoMessageParser;
 use crate::parsers::ros2msg::sensor_msgs::{
     BatteryStateMessageParser, ImuMessageParser, JointStateMessageParser, JoyMessageParser,
     PointCloud2MessageParser, RangeMessageParser,
@@ -31,6 +32,7 @@ impl McapRos2Decoder {
     pub fn new() -> Self {
         Self::empty()
             // sensor_msgs
+            .register_parser::<CompressedVideoMessageParser>("foxglove_msgs/msg/CompressedVideo")
             .register_parser::<BatteryStateMessageParser>("sensor_msgs/msg/BatteryState")
             .register_parser::<ImuMessageParser>("sensor_msgs/msg/Imu")
             .register_parser::<JoyMessageParser>("sensor_msgs/msg/Joy")
