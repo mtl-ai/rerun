@@ -36,6 +36,7 @@ key_value_pairs.md linguist-generated=true
 keypoint_id.md linguist-generated=true
 lat_lon.md linguist-generated=true
 length.md linguist-generated=true
+lens_distortion.md linguist-generated=true
 line_strip2d.md linguist-generated=true
 line_strip3d.md linguist-generated=true
 linear_speed.md linguist-generated=true

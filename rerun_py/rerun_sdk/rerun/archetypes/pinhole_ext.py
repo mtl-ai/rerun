@@ -3,7 +3,16 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Any, cast
 
-from ..encodings import Float32Like, Mat3x3Like, Rgba32Like, Utf8Like, Vec2D, Vec2DLike, ViewCoordinatesLike
+from ..encodings import (
+    Float32Like,
+    LensDistortionLike,
+    Mat3x3Like,
+    Rgba32Like,
+    Utf8Like,
+    Vec2D,
+    Vec2DLike,
+    ViewCoordinatesLike,
+)
 from ..error_utils import _send_warning_or_raise, catch_and_log_exceptions
 
 if TYPE_CHECKING:
@@ -18,6 +27,7 @@ class PinholeExt:
         *,
         image_from_camera: Mat3x3Like | None = None,
         resolution: Vec2DLike | None = None,
+        distortion: LensDistortionLike | None = None,
         camera_xyz: ViewCoordinatesLike | None = None,
         width: int | float | None = None,
         height: int | float | None = None,
@@ -44,6 +54,12 @@ class PinholeExt:
         resolution:
             Pixel resolution (usually integers) of child image space. Width and height.
             `image_from_camera` projects onto the space spanned by `(0,0)` and `resolution - 1`.
+        distortion:
+            Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+
+            If present, the viewer rectifies (undistorts) images shown under this camera so that
+            the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+            If not present, images are assumed to be already rectified (ideal pinhole).
         camera_xyz:
             Sets the camera orientation convention.
 
@@ -178,6 +194,7 @@ class PinholeExt:
             self.__attrs_init__(
                 image_from_camera=image_from_camera,
                 resolution=resolution,
+                distortion=distortion,
                 camera_xyz=camera_xyz,
                 child_frame=child_frame,
                 parent_frame=parent_frame,

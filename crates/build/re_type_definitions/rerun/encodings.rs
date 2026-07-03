@@ -36,6 +36,10 @@ mod ivec3d;
 mod keypoint_id;
 #[path = "encodings/keypoint_pair.def.rs"]
 mod keypoint_pair;
+#[path = "encodings/lens_distortion.def.rs"]
+mod lens_distortion;
+#[path = "encodings/lens_distortion_model.def.rs"]
+mod lens_distortion_model;
 #[path = "encodings/mat3x3.def.rs"]
 mod mat3x3;
 #[path = "encodings/mat4x4.def.rs"]
@@ -117,6 +121,8 @@ pub use self::image_format::*;
 pub use self::ivec3d::*;
 pub use self::keypoint_id::*;
 pub use self::keypoint_pair::*;
+pub use self::lens_distortion::*;
+pub use self::lens_distortion_model::*;
 pub use self::mat3x3::*;
 pub use self::mat4x4::*;
 pub use self::pixel_format::*;

@@ -21,6 +21,8 @@
 #include "encodings/ivec3d.hpp"
 #include "encodings/keypoint_id.hpp"
 #include "encodings/keypoint_pair.hpp"
+#include "encodings/lens_distortion.hpp"
+#include "encodings/lens_distortion_model.hpp"
 #include "encodings/mat3x3.hpp"
 #include "encodings/mat4x4.hpp"
 #include "encodings/pixel_format.hpp"

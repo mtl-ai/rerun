@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import itertools
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pytest
 import rerun as rr
-from rerun.components import PinholeProjectionBatch, ResolutionBatch, ViewCoordinatesBatch
+from rerun.components import LensDistortionBatch, PinholeProjectionBatch, ResolutionBatch, ViewCoordinatesBatch
 
 if TYPE_CHECKING:
     from rerun.encodings import Mat3x3Like, Vec2DLike, ViewCoordinatesLike
@@ -47,5 +48,64 @@ def test_pinhole() -> None:
         )
 
 
+def test_pinhole_distortion() -> None:
+    plumb_bob = [0.1, -0.2, 0.001, 0.002, 0.05]
+    padded = [*plumb_bob, 0.0, 0.0, 0.0]
+
+    # The model accepts the enum, its integer value, and its (ROS/OpenCV style) name.
+    models: list[rr.LensDistortionModel | int | str] = [
+        rr.LensDistortionModel.PlumbBob,
+        1,
+        "PlumbBob",
+        "plumb_bob",
+    ]
+    for model in models:
+        distortion = rr.LensDistortion(model, plumb_bob)
+        assert distortion.model == rr.LensDistortionModel.PlumbBob
+        # Fewer than 8 coefficients are zero-padded.
+        assert distortion.coefficients.tolist() == padded
+
+    arch = rr.Pinhole(
+        focal_length=500.0,
+        width=640,
+        height=480,
+        distortion=rr.LensDistortion("rational_polynomial", [0.1, -0.2, 0.001, 0.002, 0.05, 0.01, 0.02, 0.03]),
+    )
+    assert arch.distortion is not None
+    arrow = arch.distortion.as_arrow_array()
+    assert arrow.type == LensDistortionBatch._ARROW_DATATYPE
+    assert len(arrow) == 1
+    # No nulls anywhere: the Arrow schema declares every field non-nullable, and a null inside
+    # `coefficients` would make the viewer reject the whole Pinhole chunk.
+    arrow.validate(full=True)
+    assert arrow.null_count == 0
+    assert arrow.field(1).null_count == 0
+    assert arrow.field(1).values.null_count == 0
+    assert arrow.field(0).to_pylist() == [rr.LensDistortionModel.RationalPolynomial.value]
+    assert arrow.field(1).to_pylist() == [[0.1, -0.2, 0.001, 0.002, 0.05, 0.01, 0.02, 0.03]]
+
+    # Batches of several distortions.
+    batch = LensDistortionBatch([
+        rr.LensDistortion("plumb_bob", plumb_bob),
+        rr.LensDistortion("plumb_bob", [0.0]),
+        rr.LensDistortion(rr.LensDistortionModel.RationalPolynomial, np.arange(8, dtype=np.float32)),
+    ])
+    arrow = batch.as_arrow_array()
+    arrow.validate(full=True)
+    assert arrow.field(1).values.null_count == 0
+    assert arrow.field(0).to_pylist() == [1, 1, 2]
+    assert arrow.field(1).to_pylist() == [padded, [0.0] * 8, list(range(8))]
+
+    # Anything that would end up as a null (or otherwise non-finite) coefficient is rejected.
+    with_none: list[Any] = [0.1, None, 0.0]
+    with pytest.raises(ValueError):
+        rr.LensDistortion("plumb_bob", with_none)
+    with pytest.raises(ValueError):
+        rr.LensDistortion("plumb_bob", [0.1, float("nan")])
+    with pytest.raises(ValueError):
+        rr.LensDistortion("plumb_bob", [0.0] * 9)
+
+
 if __name__ == "__main__":
     test_pinhole()
+    test_pinhole_distortion()

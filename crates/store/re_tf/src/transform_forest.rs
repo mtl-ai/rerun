@@ -143,6 +143,10 @@ pub struct PinholeTreeRoot {
 /// Properties of a transform root.
 ///
 /// [`TransformForest`] tries to identify all roots.
+// There are only a handful of tree roots per recording, so the size difference between
+// the variants (the pinhole projection incl. lens distortion is ~240 bytes) doesn't
+// justify the indirection of boxing.
+#[expect(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, re_byte_size::SizeBytes)]
 pub enum TransformTreeRootInfo {
     /// Regular root without any extra meta information.
@@ -826,6 +830,7 @@ mod tests {
                         [50.0, 100.0],
                     ),
                 resolution: Some([100.0, 200.0].into()),
+                distortion: None,
             },
             view_coordinates: archetypes::Pinhole::DEFAULT_CAMERA_XYZ,
         }

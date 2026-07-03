@@ -33,4 +33,9 @@ pub struct ResolvedPinholeProjectionCached {
     pub image_from_camera: components::PinholeProjection,
 
     pub resolution: Option<components::Resolution>,
+
+    /// Parametric lens distortion of the camera, if it is not an ideal pinhole.
+    ///
+    /// Used by the viewer to rectify (undistort) images shown under this camera.
+    pub distortion: Option<components::LensDistortion>,
 }

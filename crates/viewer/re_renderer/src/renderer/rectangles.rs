@@ -235,6 +235,30 @@ impl TexturedRect {
     }
 }
 
+/// Rectifies (undistorts) the texture of a [`TexturedRect`] while sampling.
+///
+/// The rectangle then shows the image as an ideal (linear) pinhole camera would have
+/// seen it: per output fragment, the closed-form *forward* distortion model computes
+/// which texel of the distorted source texture to sample (inverse-map rectification).
+/// Fragments that fall outside the source texture render transparent.
+///
+/// Uses the OpenCV `plumb_bob` / `rational_polynomial` model and coefficient ordering.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RectDistortion {
+    /// OpenCV-ordered distortion coefficients `k1, k2, p1, p2, k3, k4, k5, k6`.
+    ///
+    /// `k1, k2, k3` & `p1, p2` are the radial & tangential coefficients (`plumb_bob`);
+    /// `k4, k5, k6` are the rational-polynomial denominator coefficients (zero for `plumb_bob`).
+    pub coefficients: [f32; 8],
+
+    /// Source camera intrinsics normalized to UV units: `(fx/w, fy/h, cx/w, cy/h)`,
+    /// where `w`×`h` is the image resolution the intrinsics are calibrated for.
+    ///
+    /// Working in UV space makes the remap independent of the texture's actual
+    /// resolution (which may be e.g. a downscaled video stream of the calibrated sensor).
+    pub intrinsics_uv: glam::Vec4,
+}
+
 #[derive(Clone, Debug)]
 pub struct RectangleOptions {
     pub texture_filter_magnification: TextureFilterMag,
@@ -247,6 +271,9 @@ pub struct RectangleOptions {
 
     /// Optional outline mask.
     pub outline_mask: OutlineMaskPreference,
+
+    /// If set, the texture is rectified (undistorted) while sampling.
+    pub distortion: Option<RectDistortion>,
 }
 
 impl Default for RectangleOptions {
@@ -257,6 +284,7 @@ impl Default for RectangleOptions {
             multiplicative_tint: Rgba::WHITE,
             depth_offset: 0,
             outline_mask: OutlineMaskPreference::NONE,
+            distortion: None,
         }
     }
 }
@@ -311,6 +339,11 @@ mod gpu_data {
     const FILTER_BILINEAR: u32 = 2;
     const FILTER_BICUBIC: u32 = 3;
 
+    // Which lens distortion model to rectify the texture with?
+    const DISTORTION_MODEL_NONE: u32 = 0;
+    // OpenCV `plumb_bob` / `rational_polynomial` (the former is the latter with zero denominator).
+    const DISTORTION_MODEL_OPENCV: u32 = 1;
+
     #[repr(C)]
     #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
     pub struct UniformBuffer {
@@ -340,7 +373,19 @@ mod gpu_data {
         bgra_to_rgba: u32,
         _row_padding: [u32; 1],
 
-        _end_padding: [wgpu_buffer_types::PaddingRow; 16 - 7],
+        /// Distortion coefficients `k1, k2, p1, p2` (OpenCV ordering).
+        distortion_coefficients_a: wgpu_buffer_types::Vec4,
+
+        /// Distortion coefficients `k3, k4, k5, k6` (OpenCV ordering).
+        distortion_coefficients_b: wgpu_buffer_types::Vec4,
+
+        /// Source camera intrinsics in UV units: `fx, fy, cx, cy`.
+        distortion_intrinsics_uv: wgpu_buffer_types::Vec4,
+
+        distortion_model: u32,
+        _row_padding2: [u32; 3],
+
+        _end_padding: [wgpu_buffer_types::PaddingRow; 16 - 11],
     }
 
     impl UniformBuffer {
@@ -378,6 +423,7 @@ mod gpu_data {
                 multiplicative_tint,
                 depth_offset,
                 outline_mask,
+                distortion,
             } = options;
 
             let sample_type = match texture_format.sample_type(None, None) {
@@ -423,6 +469,31 @@ mod gpu_data {
             };
             let bgra_to_rgba = shader_decoding == &Some(super::ShaderDecoding::Bgr);
 
+            // All distortion models the renderer knows share the OpenCV rational
+            // formula, so the uniform's model field is effectively an on/off switch
+            // plus room for future models (e.g. fisheye).
+            let (
+                distortion_coefficients_a,
+                distortion_coefficients_b,
+                distortion_intrinsics_uv,
+                distortion_model,
+            ) = if let Some(distortion) = distortion {
+                let [k1, k2, p1, p2, k3, k4, k5, k6] = distortion.coefficients;
+                (
+                    glam::vec4(k1, k2, p1, p2).into(),
+                    glam::vec4(k3, k4, k5, k6).into(),
+                    distortion.intrinsics_uv.into(),
+                    DISTORTION_MODEL_OPENCV,
+                )
+            } else {
+                (
+                    glam::Vec4::ZERO.into(),
+                    glam::Vec4::ZERO.into(),
+                    glam::Vec4::ZERO.into(),
+                    DISTORTION_MODEL_NONE,
+                )
+            };
+
             Ok(Self {
                 top_left_corner_position: (*top_left_corner_position).into(),
                 colormap_function,
@@ -445,6 +516,11 @@ mod gpu_data {
                 texture_alpha: *texture_alpha as _,
                 bgra_to_rgba: bgra_to_rgba as _,
                 _row_padding: Default::default(),
+                distortion_coefficients_a,
+                distortion_coefficients_b,
+                distortion_intrinsics_uv,
+                distortion_model,
+                _row_padding2: Default::default(),
                 _end_padding: Default::default(),
             })
         }
@@ -607,7 +683,10 @@ impl RectangleDrawData {
                 } else {
                     None
                 },
+                // Rectified (undistorted) rectangles sample outside the source image near
+                // the borders and render those fragments transparent.
                 has_transparency: rectangle.options.multiplicative_tint.a() < 1.0
+                    || rectangle.options.distortion.is_some()
                     || rectangle.colormapped_texture.texture.alpha_channel_usage()
                         == AlphaChannelUsage::AlphaChannelInUse
                     || matches!(&rectangle.colormapped_texture.color_mapper, ColorMapper::Texture(texture) if texture.alpha_channel_usage() == AlphaChannelUsage::AlphaChannelInUse)
@@ -839,5 +918,107 @@ impl Renderer for RectangleRenderer {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RectDistortion;
+
+    /// CPU mirror of `distortion_remap_uv` in `rectangle_fs.wgsl` (keep in sync!):
+    /// maps a rectified (ideal pinhole) UV to the distorted source UV via the
+    /// closed-form forward OpenCV model.
+    fn distortion_remap_uv(distortion: &RectDistortion, texcoord: glam::Vec2) -> glam::Vec2 {
+        let intrinsics = distortion.intrinsics_uv;
+        let [k1, k2, p1, p2, k3, k4, k5, k6] = distortion.coefficients;
+
+        let xy = (texcoord - glam::vec2(intrinsics.z, intrinsics.w))
+            / glam::vec2(intrinsics.x, intrinsics.y);
+        let r2 = xy.dot(xy);
+
+        let radial =
+            (1.0 + r2 * (k1 + r2 * (k2 + r2 * k3))) / (1.0 + r2 * (k4 + r2 * (k5 + r2 * k6)));
+        let tangential = glam::vec2(
+            2.0 * p1 * xy.x * xy.y + p2 * (r2 + 2.0 * xy.x * xy.x),
+            p1 * (r2 + 2.0 * xy.y * xy.y) + 2.0 * p2 * xy.x * xy.y,
+        );
+
+        glam::vec2(intrinsics.x, intrinsics.y) * (xy * radial + tangential)
+            + glam::vec2(intrinsics.z, intrinsics.w)
+    }
+
+    /// Validates the remap formula against `cv2.initUndistortRectifyMap` ground truth.
+    ///
+    /// Calibration is a real truck camera (`plumb_bob`, `forward_center_medium` ID065,
+    /// 3848x2168, fx=fy=3779.065, cx=1945.424, cy=1085.411). The reference source
+    /// coordinates below were computed with OpenCV:
+    /// `cv2.initUndistortRectifyMap(K, D, None, K, (3848, 2168), cv2.CV_32FC1)`,
+    /// i.e. the rectified camera matrix equals the source K -- exactly this remap.
+    /// The f64 formula agrees with OpenCV to 1.7e-4 px over the full grid; we run in
+    /// f32 here (like the shader), so allow a slightly looser pixel tolerance.
+    #[test]
+    fn distortion_remap_matches_opencv() {
+        const W: f32 = 3848.0;
+        const H: f32 = 2168.0;
+        let distortion = RectDistortion {
+            coefficients: [
+                -0.324_277_8, // k1
+                -0.317_489_3, // k2
+                0.000_571_44, // p1
+                -0.000_279_6, // p2
+                0.659_674_2,  // k3
+                0.0,
+                0.0,
+                0.0,
+            ],
+            intrinsics_uv: glam::vec4(
+                3_779.065_4 / W,
+                3_779.065_4 / H,
+                1_945.423_6 / W,
+                1_085.410_6 / H,
+            ),
+        };
+
+        // (rectified pixel) -> (source pixel per OpenCV).
+        let reference = [
+            ((0.0, 0.0), (239.667_92, 134.673_28)),
+            ((3847.0, 0.0), (3_617.905_5, 131.288_45)),
+            ((0.0, 2167.0), (238.048_23, 2_035.198_6)),
+            ((3847.0, 2167.0), (3_619.499_3, 2_038.526)),
+            ((100.0, 1084.0), (258.758_54, 1_084.636_5)),
+            ((1945.0, 100.0), (1_944.938_1, 123.409_49)),
+        ];
+        for ((u, v), (expected_x, expected_y)) in reference {
+            let source_uv = distortion_remap_uv(&distortion, glam::vec2(u / W, v / H));
+            let source_px = source_uv * glam::vec2(W, H);
+            let err = (source_px - glam::vec2(expected_x, expected_y)).length();
+            assert!(
+                err < 0.05,
+                "remap of ({u}, {v}) = {source_px:?}, expected ({expected_x}, {expected_y}), off by {err} px"
+            );
+        }
+
+        // The forward model pulls image-corner content inward by 55-100 px at the
+        // decoded 1280x720 scale of these cameras (the misalignment #2315 fixes).
+        let scale_to_720p = 1280.0 / W;
+        for (u, v) in [
+            (0.0, 0.0),
+            (W - 1.0, 0.0),
+            (0.0, H - 1.0),
+            (W - 1.0, H - 1.0),
+        ] {
+            let source_uv = distortion_remap_uv(&distortion, glam::vec2(u / W, v / H));
+            let displacement_720p =
+                (source_uv * glam::vec2(W, H) - glam::vec2(u, v)).length() * scale_to_720p;
+            assert!(
+                (55.0..=100.0).contains(&displacement_720p),
+                "corner ({u}, {v}) displaced by {displacement_720p} px @720p, expected 55-100 px"
+            );
+        }
+
+        // Regression guard: the image center must be a fixed point of the remap.
+        let center_uv = glam::vec2(1_945.423_6 / W, 1_085.410_6 / H);
+        let center_err = (distortion_remap_uv(&distortion, center_uv) - center_uv).length();
+        assert!(center_err < 1e-6, "center moved by {center_err} (UV)");
     }
 }

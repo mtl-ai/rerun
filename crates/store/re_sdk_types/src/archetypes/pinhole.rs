@@ -131,6 +131,18 @@ pub struct Pinhole {
     /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
     pub resolution: Option<SerializedComponentBatch>,
 
+    /// Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+    ///
+    /// If present, the viewer rectifies (undistorts) images shown under this camera so that
+    /// the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+    /// The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+    /// scaled by `resolution` (which therefore must be set for distortion to take effect).
+    ///
+    /// If not present, images are assumed to be already rectified (ideal pinhole).
+    ///
+    /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+    pub distortion: Option<SerializedComponentBatch>,
+
     /// Sets the camera orientation convention.
     ///
     /// All common values are available as constants on the [`components::ViewCoordinates`][crate::components::ViewCoordinates] class.
@@ -214,6 +226,20 @@ impl Pinhole {
                 archetype: Some("rerun.archetypes.Pinhole".into()),
                 component: "Pinhole:resolution".into(),
                 component_type: Some("rerun.components.Resolution".into()),
+            });
+        (*DESCRIPTOR).clone()
+    }
+
+    /// Returns the [`ComponentDescriptor`] for [`Self::distortion`].
+    ///
+    /// The corresponding component is [`crate::components::LensDistortion`].
+    #[inline]
+    pub fn descriptor_distortion() -> ComponentDescriptor {
+        static DESCRIPTOR: std::sync::LazyLock<ComponentDescriptor> =
+            std::sync::LazyLock::new(|| ComponentDescriptor {
+                archetype: Some("rerun.archetypes.Pinhole".into()),
+                component: "Pinhole:distortion".into(),
+                component_type: Some("rerun.components.LensDistortion".into()),
             });
         (*DESCRIPTOR).clone()
     }
@@ -309,9 +335,10 @@ static REQUIRED_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 1usize]> =
 static RECOMMENDED_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 1usize]> =
     std::sync::LazyLock::new(|| [Pinhole::descriptor_resolution()]);
 
-static OPTIONAL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 6usize]> =
+static OPTIONAL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 7usize]> =
     std::sync::LazyLock::new(|| {
         [
+            Pinhole::descriptor_distortion(),
             Pinhole::descriptor_camera_xyz(),
             Pinhole::descriptor_child_frame(),
             Pinhole::descriptor_parent_frame(),
@@ -321,11 +348,12 @@ static OPTIONAL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 6usize]> =
         ]
     });
 
-static ALL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 8usize]> =
+static ALL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 9usize]> =
     std::sync::LazyLock::new(|| {
         [
             Pinhole::descriptor_image_from_camera(),
             Pinhole::descriptor_resolution(),
+            Pinhole::descriptor_distortion(),
             Pinhole::descriptor_camera_xyz(),
             Pinhole::descriptor_child_frame(),
             Pinhole::descriptor_parent_frame(),
@@ -336,8 +364,8 @@ static ALL_COMPONENTS: std::sync::LazyLock<[ComponentDescriptor; 8usize]> =
     });
 
 impl Pinhole {
-    /// The total number of components in the archetype: 1 required, 1 recommended, 6 optional
-    pub const NUM_COMPONENTS: usize = 8usize;
+    /// The total number of components in the archetype: 1 required, 1 recommended, 7 optional
+    pub const NUM_COMPONENTS: usize = 9usize;
 }
 
 impl ::re_types_core::Archetype for Pinhole {
@@ -393,6 +421,11 @@ impl ::re_types_core::Archetype for Pinhole {
             .map(|array| {
                 SerializedComponentBatch::new(array.clone(), Self::descriptor_resolution())
             });
+        let distortion = arrays_by_descr
+            .get(&Self::descriptor_distortion())
+            .map(|array| {
+                SerializedComponentBatch::new(array.clone(), Self::descriptor_distortion())
+            });
         let camera_xyz = arrays_by_descr
             .get(&Self::descriptor_camera_xyz())
             .map(|array| {
@@ -427,6 +460,7 @@ impl ::re_types_core::Archetype for Pinhole {
         Ok(Self {
             image_from_camera,
             resolution,
+            distortion,
             camera_xyz,
             child_frame,
             parent_frame,
@@ -444,6 +478,7 @@ impl ::re_types_core::AsComponents for Pinhole {
         [
             self.image_from_camera.clone(),
             self.resolution.clone(),
+            self.distortion.clone(),
             self.camera_xyz.clone(),
             self.child_frame.clone(),
             self.parent_frame.clone(),
@@ -476,6 +511,7 @@ impl Pinhole {
                 [image_from_camera],
             ),
             resolution: None,
+            distortion: None,
             camera_xyz: None,
             child_frame: None,
             parent_frame: None,
@@ -503,6 +539,10 @@ impl Pinhole {
             resolution: Some(SerializedComponentBatch::new(
                 crate::components::Resolution::arrow_empty(),
                 Self::descriptor_resolution(),
+            )),
+            distortion: Some(SerializedComponentBatch::new(
+                crate::components::LensDistortion::arrow_empty(),
+                Self::descriptor_distortion(),
             )),
             camera_xyz: Some(SerializedComponentBatch::new(
                 crate::components::ViewCoordinates::arrow_empty(),
@@ -556,6 +596,9 @@ impl Pinhole {
             self.resolution
                 .map(|resolution| resolution.partitioned(_lengths.clone()))
                 .transpose()?,
+            self.distortion
+                .map(|distortion| distortion.partitioned(_lengths.clone()))
+                .transpose()?,
             self.camera_xyz
                 .map(|camera_xyz| camera_xyz.partitioned(_lengths.clone()))
                 .transpose()?,
@@ -588,6 +631,7 @@ impl Pinhole {
     ) -> SerializationResult<impl Iterator<Item = ::re_types_core::SerializedComponentColumn>> {
         let len_image_from_camera = self.image_from_camera.as_ref().map(|b| b.array.len());
         let len_resolution = self.resolution.as_ref().map(|b| b.array.len());
+        let len_distortion = self.distortion.as_ref().map(|b| b.array.len());
         let len_camera_xyz = self.camera_xyz.as_ref().map(|b| b.array.len());
         let len_child_frame = self.child_frame.as_ref().map(|b| b.array.len());
         let len_parent_frame = self.parent_frame.as_ref().map(|b| b.array.len());
@@ -597,6 +641,7 @@ impl Pinhole {
         let len = None
             .or(len_image_from_camera)
             .or(len_resolution)
+            .or(len_distortion)
             .or(len_camera_xyz)
             .or(len_child_frame)
             .or(len_parent_frame)
@@ -660,6 +705,38 @@ impl Pinhole {
         resolution: impl IntoIterator<Item = impl Into<crate::components::Resolution>>,
     ) -> Self {
         self.resolution = try_serialize_field(Self::descriptor_resolution(), resolution);
+        self
+    }
+
+    /// Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+    ///
+    /// If present, the viewer rectifies (undistorts) images shown under this camera so that
+    /// the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+    /// The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+    /// scaled by `resolution` (which therefore must be set for distortion to take effect).
+    ///
+    /// If not present, images are assumed to be already rectified (ideal pinhole).
+    ///
+    /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+    #[inline]
+    pub fn with_distortion(
+        mut self,
+        distortion: impl Into<crate::components::LensDistortion>,
+    ) -> Self {
+        self.distortion = try_serialize_field(Self::descriptor_distortion(), [distortion]);
+        self
+    }
+
+    /// This method makes it possible to pack multiple [`crate::components::LensDistortion`] in a single component batch.
+    ///
+    /// This only makes sense when used in conjunction with [`Self::columns`]. [`Self::with_distortion`] should
+    /// be used when logging a single row's worth of data.
+    #[inline]
+    pub fn with_many_distortion(
+        mut self,
+        distortion: impl IntoIterator<Item = impl Into<crate::components::LensDistortion>>,
+    ) -> Self {
+        self.distortion = try_serialize_field(Self::descriptor_distortion(), distortion);
         self
     }
 

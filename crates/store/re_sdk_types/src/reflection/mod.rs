@@ -1202,6 +1202,18 @@ fn generate_component_reflection() -> Result<ComponentReflectionMap, Serializati
             },
         ),
         (
+            <LensDistortion as Component>::name(),
+            ComponentReflection {
+                docstring_md: "Parametric lens distortion of a pinhole camera, in OpenCV coefficient ordering.\n\nWhen attached to a [`archetypes.Pinhole`](https://rerun.io/docs/reference/types/archetypes/pinhole), the viewer rectifies (undistorts) images\nshown under that camera so that the linear `image_from_camera` projection maps\n3D geometry onto the correct pixels.",
+                deprecation_summary: None,
+                custom_placeholder: None,
+                datatype: LensDistortion::arrow_data_type(),
+                is_enum: false,
+                own_chunk: false,
+                verify_arrow_array: LensDistortion::verify_arrow_array,
+            },
+        ),
+        (
             <LineStrip2D as Component>::name(),
             ComponentReflection {
                 docstring_md: "A line strip in 2D space.\n\nA line strip is a list of points connected by line segments. It can be used to draw\napproximations of smooth curves.\n\nThe points will be connected in order, like so:\n```text\n       2------3     5\n      /        \\   /\n0----1          \\ /\n                 4\n```",
@@ -3561,6 +3573,13 @@ fn generate_archetype_reflection() -> ArchetypeReflectionMap {
                         display_name: "Resolution",
                         component_type: "rerun.components.Resolution".into(),
                         docstring_md: "Pixel resolution (usually integers) of child image space. Width and height.\n\nExample:\n```text\n[1920.0, 1440.0]\n```\n\n`image_from_camera` project onto the space spanned by `(0,0)` and `resolution - 1`.\n\nAny update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.",
+                        flags: ArchetypeFieldFlags::empty(),
+                    },
+                    ArchetypeFieldReflection {
+                        name: "distortion",
+                        display_name: "Distortion",
+                        component_type: "rerun.components.LensDistortion".into(),
+                        docstring_md: "Parametric lens distortion of the camera, in OpenCV coefficient ordering.\n\nIf present, the viewer rectifies (undistorts) images shown under this camera so that\nthe linear `image_from_camera` projection maps 3D geometry onto the correct pixels.\nThe coefficients apply to normalized camera coordinates derived via `image_from_camera`,\nscaled by `resolution` (which therefore must be set for distortion to take effect).\n\nIf not present, images are assumed to be already rectified (ideal pinhole).\n\nAny update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.",
                         flags: ArchetypeFieldFlags::empty(),
                     },
                     ArchetypeFieldReflection {

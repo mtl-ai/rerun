@@ -24,8 +24,8 @@ pub use point_cloud::{
     PointCloudBatchFlags, PointCloudBatchInfo, PointCloudDrawData, PointCloudDrawDataError,
 };
 pub use rectangles::{
-    ColorMapper, ColormappedTexture, RectangleDrawData, RectangleOptions, ShaderDecoding,
-    TextureAlpha, TextureFilterMag, TextureFilterMin, TexturedRect,
+    ColorMapper, ColormappedTexture, RectDistortion, RectangleDrawData, RectangleOptions,
+    ShaderDecoding, TextureAlpha, TextureFilterMag, TextureFilterMin, TexturedRect,
 };
 pub use test_triangle::TestTriangleDrawData;
 pub use voxel_grid::{

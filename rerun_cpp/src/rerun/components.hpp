@@ -37,6 +37,7 @@
 #include "components/keypoint_id.hpp"
 #include "components/lat_lon.hpp"
 #include "components/length.hpp"
+#include "components/lens_distortion.hpp"
 #include "components/line_strip2d.hpp"
 #include "components/line_strip3d.hpp"
 #include "components/linear_speed.hpp"

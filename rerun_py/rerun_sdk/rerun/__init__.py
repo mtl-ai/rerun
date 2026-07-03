@@ -190,6 +190,8 @@ from .encodings import (
     ChannelDatatype as ChannelDatatype,
     ClassDescription as ClassDescription,
     ColorModel as ColorModel,
+    LensDistortion as LensDistortion,
+    LensDistortionModel as LensDistortionModel,
     PixelFormat as PixelFormat,
     Quaternion as Quaternion,
     RotationAxisAngle as RotationAxisAngle,

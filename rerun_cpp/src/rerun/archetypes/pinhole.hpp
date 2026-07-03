@@ -8,6 +8,7 @@
 #include "../component_column.hpp"
 #include "../components/color.hpp"
 #include "../components/image_plane_distance.hpp"
+#include "../components/lens_distortion.hpp"
 #include "../components/pinhole_projection.hpp"
 #include "../components/radius.hpp"
 #include "../components/resolution.hpp"
@@ -110,6 +111,18 @@ namespace rerun::archetypes {
         /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
         std::optional<ComponentBatch> resolution;
 
+        /// Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+        ///
+        /// If present, the viewer rectifies (undistorts) images shown under this camera so that
+        /// the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+        /// The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+        /// scaled by `resolution` (which therefore must be set for distortion to take effect).
+        ///
+        /// If not present, images are assumed to be already rectified (ideal pinhole).
+        ///
+        /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+        std::optional<ComponentBatch> distortion;
+
         /// Sets the camera orientation convention.
         ///
         /// All common values are available as constants on the `components::ViewCoordinates` class.
@@ -180,6 +193,11 @@ namespace rerun::archetypes {
         static constexpr auto Descriptor_resolution = ComponentDescriptor(
             ArchetypeName, "Pinhole:resolution",
             Loggable<rerun::components::Resolution>::ComponentType
+        );
+        /// `ComponentDescriptor` for the `distortion` field.
+        static constexpr auto Descriptor_distortion = ComponentDescriptor(
+            ArchetypeName, "Pinhole:distortion",
+            Loggable<rerun::components::LensDistortion>::ComponentType
         );
         /// `ComponentDescriptor` for the `camera_xyz` field.
         static constexpr auto Descriptor_camera_xyz = ComponentDescriptor(
@@ -333,6 +351,34 @@ namespace rerun::archetypes {
         ) && {
             resolution =
                 ComponentBatch::from_loggable(_resolution, Descriptor_resolution).value_or_throw();
+            return std::move(*this);
+        }
+
+        /// Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+        ///
+        /// If present, the viewer rectifies (undistorts) images shown under this camera so that
+        /// the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+        /// The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+        /// scaled by `resolution` (which therefore must be set for distortion to take effect).
+        ///
+        /// If not present, images are assumed to be already rectified (ideal pinhole).
+        ///
+        /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+        Pinhole with_distortion(const rerun::components::LensDistortion& _distortion) && {
+            distortion =
+                ComponentBatch::from_loggable(_distortion, Descriptor_distortion).value_or_throw();
+            return std::move(*this);
+        }
+
+        /// This method makes it possible to pack multiple `distortion` in a single component batch.
+        ///
+        /// This only makes sense when used in conjunction with `columns`. `with_distortion` should
+        /// be used when logging a single row's worth of data.
+        Pinhole with_many_distortion(
+            const Collection<rerun::components::LensDistortion>& _distortion
+        ) && {
+            distortion =
+                ComponentBatch::from_loggable(_distortion, Descriptor_distortion).value_or_throw();
             return std::move(*this);
         }
 

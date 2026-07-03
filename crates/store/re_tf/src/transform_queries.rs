@@ -113,7 +113,7 @@ pub fn atomic_component_set_for_instance_poses() -> &'static [ComponentIdentifie
 }
 
 pub fn atomic_component_set_for_pinhole_projection() -> &'static [ComponentIdentifier] {
-    static ATOMIC_COMPONENTS_FOR_PINHOLE_PROJECTION: OnceLock<[ComponentIdentifier; 4]> =
+    static ATOMIC_COMPONENTS_FOR_PINHOLE_PROJECTION: OnceLock<[ComponentIdentifier; 5]> =
         OnceLock::new();
 
     ATOMIC_COMPONENTS_FOR_PINHOLE_PROJECTION.get_or_init(|| {
@@ -124,6 +124,7 @@ pub fn atomic_component_set_for_pinhole_projection() -> &'static [ComponentIdent
             // Geometry
             archetypes::Pinhole::descriptor_image_from_camera().component,
             archetypes::Pinhole::descriptor_resolution().component,
+            archetypes::Pinhole::descriptor_distortion().component,
         ]
     })
 }
@@ -461,6 +462,7 @@ pub fn query_and_resolve_pinhole_projection_at_entity(
     let identifier_image_from_camera =
         archetypes::Pinhole::descriptor_image_from_camera().component;
     let identifier_resolution = archetypes::Pinhole::descriptor_resolution().component;
+    let identifier_distortion = archetypes::Pinhole::descriptor_distortion().component;
 
     let storage_engine = entity_db.storage_engine();
     let Some((chunk, row_index)) =
@@ -483,6 +485,9 @@ pub fn query_and_resolve_pinhole_projection_at_entity(
     let resolution = chunk
         .component_mono::<components::Resolution>(identifier_resolution, row_index)
         .and_then(|v| v.ok());
+    let distortion = chunk
+        .component_mono::<components::LensDistortion>(identifier_distortion, row_index)
+        .and_then(|v| v.ok());
 
     let parent = get_parent_frame(chunk, row_index, entity_path, identifier_parent_frame)?;
 
@@ -490,6 +495,7 @@ pub fn query_and_resolve_pinhole_projection_at_entity(
         parent,
         image_from_camera,
         resolution,
+        distortion,
     })
 }
 

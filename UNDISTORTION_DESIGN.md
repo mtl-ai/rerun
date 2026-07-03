@@ -78,7 +78,7 @@ because it operates on the already-remapped `coord`.
   codegen would need `cargo run -p re_types_builder` or a machine with pixi; check
   `pixi.toml`'s `codegen` task for the exact underlying command.)
 
-### 2. Import path — stop dropping D
+### 2. Import path — stop dropping `D`
 
 - `crates/store/re_mcap/src/parsers/ros2msg/sensor_msgs/camera_info.rs:29–35`: the
   destructure `let CameraInfo { header, width, height, k, .. }` currently discards
@@ -124,7 +124,7 @@ because it operates on the already-remapped `coord`.
 - The frustum visualization (`cameras.rs` / `pinhole_wrapper.rs`) stays linear —
   correct, since the *rectified* image is what's displayed.
 
-### 5. UI / blueprint (optional, v1.5)
+### 5. Blueprint UI toggle (optional, v1.5)
 
 - A per-view or per-entity `rectify: bool` blueprint property (default on when
   coefficients are present) so users can A/B the warp. Component editor via

@@ -49,6 +49,7 @@ on [Entities and Components](../../concepts/logging-and-ingestion/entity-compone
 * [`KeypointId`](components/keypoint_id.md): A 16-bit ID representing a type of semantic keypoint within a class.
 * [`LatLon`](components/lat_lon.md): A geospatial position expressed in [EPSG:4326](https://epsg.io/4326) latitude and longitude (North/East-positive degrees).
 * [`Length`](components/length.md): Length, or one-dimensional size.
+* [`LensDistortion`](components/lens_distortion.md): Parametric lens distortion of a pinhole camera, in OpenCV coefficient ordering.
 * [`LineStrip2D`](components/line_strip2d.md): A line strip in 2D space.
 * [`LineStrip3D`](components/line_strip3d.md): A line strip in 3D space.
 * [`LinearSpeed`](components/linear_speed.md): Linear speed, used for translation speed for example.

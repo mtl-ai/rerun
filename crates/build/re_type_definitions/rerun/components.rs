@@ -70,6 +70,8 @@ mod keypoint_id;
 mod latlon;
 #[path = "components/length.def.rs"]
 mod length;
+#[path = "components/lens_distortion.def.rs"]
+mod lens_distortion;
 #[path = "components/line_strip2d.def.rs"]
 mod line_strip2d;
 #[path = "components/line_strip3d.def.rs"]
@@ -208,6 +210,7 @@ pub use self::key_value_pairs::*;
 pub use self::keypoint_id::*;
 pub use self::latlon::*;
 pub use self::length::*;
+pub use self::lens_distortion::*;
 pub use self::line_strip2d::*;
 pub use self::line_strip3d::*;
 pub use self::linear_speed::*;

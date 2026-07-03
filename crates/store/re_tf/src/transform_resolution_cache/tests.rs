@@ -673,6 +673,68 @@ fn test_static_pose_transforms() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
+fn test_static_pinhole_projection_carries_distortion() -> Result<(), Box<dyn std::error::Error>> {
+    // A Pinhole logged with a LensDistortion component must surface that
+    // distortion on the resolved projection -- that resolved datum is what the
+    // spatial view reads to rectify (undistort) images shown under this camera.
+    // Guards the re_tf plumbing that threads distortion through the cache.
+    let image_from_camera =
+        PinholeProjection::from_focal_length_and_principal_point([100.0, 100.0], [50.0, 50.0]);
+    let distortion = components::LensDistortion(re_sdk_types::datatypes::LensDistortion {
+        model: re_sdk_types::datatypes::LensDistortionModel::PlumbBob,
+        // A real plumb_bob calibration (k1, k2, p1, p2, k3); the trailing
+        // rational-polynomial slots stay zero.
+        coefficients: [-0.3243, -0.3175, 0.0006, -0.0003, 0.6597, 0.0, 0.0, 0.0],
+    });
+
+    // Static pinhole (incl. distortion), with view coordinates on a timeline.
+    let timeline = Timeline::new_sequence("t");
+    let pinhole_chunk = Chunk::builder(EntityPath::from("my_entity"))
+        .with_archetype_auto_row(
+            TimePoint::default(),
+            &Pinhole::new(image_from_camera)
+                .with_resolution([100.0, 100.0])
+                .with_distortion(distortion),
+        )
+        .build()?;
+    let view_coordinates_chunk = Chunk::builder(EntityPath::from("my_entity"))
+        .with_archetype_auto_row([(timeline, 1)], &archetypes::ViewCoordinates::BLU())
+        .build()?;
+
+    let mut cache = TransformResolutionCache::default();
+    let mut entity_db = new_entity_db_with_subscriber_registered();
+    entity_db.add_chunk(&Arc::new(pinhole_chunk))?;
+    entity_db.add_chunk(&Arc::new(view_coordinates_chunk))?;
+    apply_store_subscriber_events(&mut cache, &entity_db);
+
+    let transforms_per_timeline = cache.transforms_for_timeline(*timeline.name());
+    let transforms = transforms_per_timeline
+        .frame_transforms(TransformFrameIdHash::from_entity_path(&EntityPath::from(
+            "my_entity",
+        )))
+        .unwrap();
+
+    assert_eq!(
+        latest_at_pinhole_test(
+            transforms,
+            &entity_db,
+            &LatestAtQuery::new(*timeline.name(), 1)
+        ),
+        Some(ResolvedPinholeProjection {
+            cached: ResolvedPinholeProjectionCached {
+                parent: TransformFrameIdHash::entity_path_hierarchy_root(),
+                image_from_camera,
+                resolution: Some([100.0, 100.0].into()),
+                distortion: Some(distortion),
+            },
+            view_coordinates: components::ViewCoordinates::BLU,
+        })
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_static_pinhole_projection() -> Result<(), Box<dyn std::error::Error>> {
     for flavor in &ALL_STATIC_TEST_FLAVOURS {
         let image_from_camera_prior = PinholeProjection::from_focal_length_and_principal_point(
@@ -730,6 +792,7 @@ fn test_static_pinhole_projection() -> Result<(), Box<dyn std::error::Error>> {
                     parent: TransformFrameIdHash::entity_path_hierarchy_root(),
                     image_from_camera: image_from_camera_final,
                     resolution: Some([2.0, 2.0].into()),
+                    distortion: None,
                 },
                 view_coordinates: archetypes::Pinhole::DEFAULT_CAMERA_XYZ,
             })
@@ -757,6 +820,7 @@ fn test_static_pinhole_projection() -> Result<(), Box<dyn std::error::Error>> {
                     parent: TransformFrameIdHash::entity_path_hierarchy_root(),
                     image_from_camera: image_from_camera_final,
                     resolution: Some([2.0, 2.0].into()),
+                    distortion: None,
                 },
                 view_coordinates: components::ViewCoordinates::BLU,
             })
@@ -780,6 +844,7 @@ fn test_static_pinhole_projection() -> Result<(), Box<dyn std::error::Error>> {
                     parent: TransformFrameIdHash::entity_path_hierarchy_root(),
                     image_from_camera: image_from_camera_final,
                     resolution: Some([2.0, 2.0].into()),
+                    distortion: None,
                 },
                 view_coordinates: archetypes::Pinhole::DEFAULT_CAMERA_XYZ,
             })
@@ -858,6 +923,7 @@ fn test_static_view_coordinates_projection() -> Result<(), Box<dyn std::error::E
                     parent: TransformFrameIdHash::entity_path_hierarchy_root(),
                     image_from_camera,
                     resolution: None,
+                    distortion: None,
                 },
                 view_coordinates: components::ViewCoordinates::BLU,
             })
@@ -1066,6 +1132,7 @@ fn test_pinhole_projections() -> Result<(), Box<dyn std::error::Error>> {
                     parent: TransformFrameIdHash::entity_path_hierarchy_root(),
                     image_from_camera,
                     resolution: None,
+                    distortion: None,
                 },
                 view_coordinates,
             }),
@@ -1978,6 +2045,7 @@ fn test_pinhole_with_explicit_frames() -> Result<(), Box<dyn std::error::Error>>
                     parent: TransformFrameIdHash::from_str("parent_frame"),
                     image_from_camera,
                     resolution: None,
+                    distortion: None,
                 },
                 view_coordinates: archetypes::Pinhole::DEFAULT_CAMERA_XYZ,
             }),
@@ -2039,6 +2107,7 @@ fn test_pinhole_with_explicit_frames() -> Result<(), Box<dyn std::error::Error>>
                         parent: TransformFrameIdHash::from_str("parent_frame"),
                         image_from_camera,
                         resolution: Some([1.0, 2.0].into()),
+                        distortion: None,
                     },
                     view_coordinates: archetypes::Pinhole::DEFAULT_CAMERA_XYZ,
                 }),
