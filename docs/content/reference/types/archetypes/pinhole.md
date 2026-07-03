@@ -19,6 +19,7 @@ directly without needing a [`archetypes.CoordinateFrame`](https://rerun.io/docs/
 * `resolution`: [`Resolution`](../components/resolution.md)
 
 ### Optional
+* `distortion`: [`LensDistortion`](../components/lens_distortion.md)
 * `camera_xyz`: [`ViewCoordinates`](../components/view_coordinates.md)
 * `child_frame`: [`TransformFrameId`](../components/transform_frame_id.md)
 * `parent_frame`: [`TransformFrameId`](../components/transform_frame_id.md)

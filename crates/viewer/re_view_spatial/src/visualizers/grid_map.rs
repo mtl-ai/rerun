@@ -320,6 +320,8 @@ impl GridMapVisualizer {
                 multiplicative_tint,
                 depth_offset: spatial_ctx.depth_offset,
                 outline_mask: spatial_ctx.highlight.overall,
+                // Grid maps are synthetic (not camera images) -- never rectified.
+                distortion: None,
             },
         };
 

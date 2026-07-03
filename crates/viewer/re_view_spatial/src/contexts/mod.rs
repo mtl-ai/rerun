@@ -12,6 +12,7 @@ pub use transform_tree_context::{TransformInfo, TransformTreeContext};
 /// Context objects for a single visualizer instruction in a spatial scene.
 pub struct SpatialSceneVisualizerInstructionContext<'a> {
     pub visualizer_instruction: VisualizerInstructionId,
+    pub transforms: &'a TransformTreeContext,
     pub transform_info: &'a TransformInfo,
     pub depth_offset: DepthOffset,
     pub annotations: std::sync::Arc<Annotations>,

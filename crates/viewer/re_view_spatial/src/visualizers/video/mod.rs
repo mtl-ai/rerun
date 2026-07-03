@@ -29,7 +29,8 @@ use crate::SpaceKind;
 use crate::contexts::EntityDepthOffsets;
 use crate::visualizers::DepthImageProcessResult;
 use crate::visualizers::utilities::{
-    spatial_view_kind_from_view_class, transform_info_for_archetype_or_report_error,
+    rect_distortion_for_entity, spatial_view_kind_from_view_class,
+    transform_info_for_archetype_or_report_error,
 };
 use crate::{PickableRectSourceData, PickableTexturedRect, SpatialView2D, TransformTreeContext};
 
@@ -273,6 +274,7 @@ fn execute_video_stream_like(
                     Some(video_stream_processing_issue(entity_path, &err)),
                     None,
                     None,
+                    None,
                 );
                 continue;
             }
@@ -423,6 +425,7 @@ fn execute_video_stream_like(
                 frame_output.error.map(VideoPlaybackIssue::from),
                 depth_config.as_ref(),
                 bit_depth,
+                rect_distortion_for_entity(transforms, transform_info),
             );
 
             if ctx.context_systems.view_class_identifier == SpatialView2D::identifier() {
@@ -555,6 +558,7 @@ fn show_video_frame(
     issue: Option<VideoPlaybackIssue>,
     depth_config: Option<&DepthTextureConfig>,
     bit_depth: Option<u8>,
+    distortion: Option<renderer::RectDistortion>,
 ) {
     let show_frame = issue.as_ref().map(|issue| issue.show_frame).unwrap_or(true);
     if !show_frame {
@@ -646,6 +650,9 @@ fn show_video_frame(
                         .multiplicative_tint
                         // Fade out if we don't have an up to date frame without issues.
                         .multiply(0.5 + 0.5 * animated_valid_frame),
+                    // If the video sits under a distorted pinhole camera, rectify it so
+                    // that linear projections of 3D geometry land on the right pixels.
+                    distortion,
                 },
             };
             visualizer_data.add_pickable_rect(
@@ -777,6 +784,8 @@ fn show_video_frame(
             outline_mask: highlight.overall,
             multiplicative_tint: egui::Rgba::from(ctx.egui_ctx().tokens().text_default).to_opaque(),
             depth_offset,
+            // The error icon is an overlay, not camera content -- never rectified.
+            distortion: None,
         },
     };
 

@@ -19,6 +19,11 @@ const FILTER_NEAREST  = 1u;
 const FILTER_BILINEAR = 2u;
 const FILTER_BICUBIC  = 3u;
 
+// Which lens distortion model to rectify the texture with?
+const DISTORTION_MODEL_NONE   = 0u;
+// OpenCV `plumb_bob` / `rational_polynomial` (the former is the latter with zero denominator).
+const DISTORTION_MODEL_OPENCV = 1u;
+
 // ----------------------------------------------------------------------------
 // See enum TextureAlpha
 
@@ -80,6 +85,18 @@ struct UniformBuffer {
 
     /// Boolean: swizzle RGBA to BGRA
     bgra_to_rgba: u32,
+
+    /// Distortion coefficients k1, k2, p1, p2 (OpenCV ordering).
+    distortion_coefficients_a: vec4f,
+
+    /// Distortion coefficients k3, k4, k5, k6 (OpenCV ordering).
+    distortion_coefficients_b: vec4f,
+
+    /// Source camera intrinsics in UV units: fx, fy, cx, cy.
+    distortion_intrinsics_uv: vec4f,
+
+    /// DISTORTION_MODEL_…
+    distortion_model: u32,
 };
 
 @group(1) @binding(0)

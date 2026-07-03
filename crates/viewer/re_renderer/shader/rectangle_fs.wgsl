@@ -90,6 +90,37 @@ fn filter_bicubic(colors: array<vec4f, 16>, wx: vec4f, wy: vec4f) -> vec4f {
     return result;
 }
 
+/// Rectification (lens undistortion) by inverse mapping:
+/// maps a texture coordinate of the *rectified* (ideal pinhole) output image to the
+/// corresponding coordinate in the *distorted* source texture, using the closed-form
+/// forward OpenCV distortion model (`plumb_bob` / `rational_polynomial`).
+///
+/// Both coordinates are in normalized [0, 1] UV space; the intrinsics in the uniform
+/// buffer are pre-normalized to UV units, making this independent of texture resolution.
+fn distortion_remap_uv(texcoord: vec2f) -> vec2f {
+    // Rectified UV -> normalized camera plane coordinates (undo the linear intrinsics).
+    let intrinsics = rect_info.distortion_intrinsics_uv; // fx, fy (xy); cx, cy (zw)
+    let xy = (texcoord - intrinsics.zw) / intrinsics.xy;
+    let r2 = dot(xy, xy);
+
+    let c_a = rect_info.distortion_coefficients_a; // k1, k2, p1, p2
+    let c_b = rect_info.distortion_coefficients_b; // k3, k4, k5, k6
+
+    // Radial factor: (1 + k1 r² + k2 r⁴ + k3 r⁶) / (1 + k4 r² + k5 r⁴ + k6 r⁶).
+    // For `plumb_bob`, k4 = k5 = k6 = 0, i.e. the denominator is 1.
+    let radial = (1.0 + r2 * (c_a.x + r2 * (c_a.y + r2 * c_b.x)))
+               / (1.0 + r2 * (c_b.y + r2 * (c_b.z + r2 * c_b.w)));
+
+    // Tangential term (p1, p2).
+    let tangential = vec2f(
+        2.0 * c_a.z * xy.x * xy.y + c_a.w * (r2 + 2.0 * xy.x * xy.x),
+        c_a.z * (r2 + 2.0 * xy.y * xy.y) + 2.0 * c_a.w * xy.x * xy.y,
+    );
+
+    // Distorted camera plane coordinates -> source UV (re-apply the linear intrinsics).
+    return intrinsics.xy * (xy * radial + tangential) + intrinsics.zw;
+}
+
 @fragment
 fn fs_main(in: VertexOut) -> @location(0) vec4f {
     // Sample the main texture:
@@ -104,7 +135,18 @@ fn fs_main(in: VertexOut) -> @location(0) vec4f {
         texture_dimensions = vec2f(textureDimensions(texture_uint).xy);
     }
 
-    let coord = in.texcoord * texture_dimensions;
+    var texcoord = in.texcoord;
+    if rect_info.distortion_model != DISTORTION_MODEL_NONE {
+        texcoord = distortion_remap_uv(texcoord);
+        // The rectified image has curved borders; fragments whose source sample falls
+        // outside the texture have no image content -> transparent.
+        // (These rectangles are always drawn in the transparent pass.)
+        if any(texcoord < vec2f(0.0)) || any(texcoord > vec2f(1.0)) {
+            return vec4f(0.0);
+        }
+    }
+
+    let coord = texcoord * texture_dimensions;
     let active_filter = tex_filter(coord);
 
     switch active_filter {

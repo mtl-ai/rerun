@@ -44,6 +44,20 @@ pub struct Pinhole {
     #[rerun(recommended)]
     pub resolution: Option<rerun::components::Resolution>,
 
+    /// Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+    ///
+    /// If present, the viewer rectifies (undistorts) images shown under this camera so that
+    /// the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+    /// The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+    /// scaled by `resolution` (which therefore must be set for distortion to take effect).
+    ///
+    /// If not present, images are assumed to be already rectified (ideal pinhole).
+    ///
+    /// Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+    #[rerun(no_ui_edit)]
+    #[rerun(optional)]
+    pub distortion: Option<rerun::components::LensDistortion>,
+
     // --- Other ---
     /// Sets the camera orientation convention.
     ///

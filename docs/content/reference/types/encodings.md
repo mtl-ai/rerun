@@ -27,6 +27,8 @@ Data types are the lowest layer of the data model hierarchy. They are re-usable 
 * [`ImageFormat`](encodings/image_format.md): The metadata describing the contents of a [`components.ImageBuffer`](https://rerun.io/docs/reference/types/components/image_buffer).
 * [`KeypointId`](encodings/keypoint_id.md): A 16-bit ID representing a type of semantic keypoint within a class.
 * [`KeypointPair`](encodings/keypoint_pair.md): A connection between two [`encodings.KeypointId`](https://rerun.io/docs/reference/types/encodings/keypoint_id)s.
+* [`LensDistortion`](encodings/lens_distortion.md): Parametric lens distortion of a pinhole camera, in OpenCV coefficient ordering.
+* [`LensDistortionModel`](encodings/lens_distortion_model.md): The parametric camera lens distortion model that a set of distortion coefficients belongs to.
 * [`Mat3x3`](encodings/mat3x3.md): A 3x3 Matrix.
 * [`Mat4x4`](encodings/mat4x4.md): A 4x4 Matrix.
 * [`PixelFormat`](encodings/pixel_format.md): Specifieds a particular format of an [`archetypes.Image`](https://rerun.io/docs/reference/types/archetypes/image).

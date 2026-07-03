@@ -109,6 +109,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
         self.__attrs_init__(
             image_from_camera=None,
             resolution=None,
+            distortion=None,
             camera_xyz=None,
             child_frame=None,
             parent_frame=None,
@@ -131,6 +132,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
         clear_unset: bool = False,
         image_from_camera: encodings.Mat3x3Like | None = None,
         resolution: encodings.Vec2DLike | None = None,
+        distortion: encodings.LensDistortionLike | None = None,
         camera_xyz: encodings.ViewCoordinatesLike | None = None,
         child_frame: encodings.Utf8Like | None = None,
         parent_frame: encodings.Utf8Like | None = None,
@@ -158,6 +160,17 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
             ```
 
             `image_from_camera` project onto the space spanned by `(0,0)` and `resolution - 1`.
+
+            Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+        distortion:
+            Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+
+            If present, the viewer rectifies (undistorts) images shown under this camera so that
+            the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+            The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+            scaled by `resolution` (which therefore must be set for distortion to take effect).
+
+            If not present, images are assumed to be already rectified (ideal pinhole).
 
             Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
         camera_xyz:
@@ -219,6 +232,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
             kwargs = {
                 "image_from_camera": image_from_camera,
                 "resolution": resolution,
+                "distortion": distortion,
                 "camera_xyz": camera_xyz,
                 "child_frame": child_frame,
                 "parent_frame": parent_frame,
@@ -255,6 +269,14 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
             "Pinhole:resolution",
             archetype=Pinhole.NAME,
             component_type=components.ResolutionBatch._COMPONENT_TYPE,
+        )
+
+    @staticmethod
+    def descriptor_distortion() -> ComponentDescriptor:
+        return ComponentDescriptor(
+            "Pinhole:distortion",
+            archetype=Pinhole.NAME,
+            component_type=components.LensDistortionBatch._COMPONENT_TYPE,
         )
 
     @staticmethod
@@ -311,6 +333,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
         *,
         image_from_camera: encodings.Mat3x3ArrayLike | None = None,
         resolution: encodings.Vec2DArrayLike | None = None,
+        distortion: encodings.LensDistortionArrayLike | None = None,
         camera_xyz: encodings.ViewCoordinatesArrayLike | None = None,
         child_frame: encodings.Utf8ArrayLike | None = None,
         parent_frame: encodings.Utf8ArrayLike | None = None,
@@ -341,6 +364,17 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
             ```
 
             `image_from_camera` project onto the space spanned by `(0,0)` and `resolution - 1`.
+
+            Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+        distortion:
+            Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+
+            If present, the viewer rectifies (undistorts) images shown under this camera so that
+            the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+            The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+            scaled by `resolution` (which therefore must be set for distortion to take effect).
+
+            If not present, images are assumed to be already rectified (ideal pinhole).
 
             Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
         camera_xyz:
@@ -402,6 +436,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
             inst.__attrs_init__(
                 image_from_camera=image_from_camera,
                 resolution=resolution,
+                distortion=distortion,
                 camera_xyz=camera_xyz,
                 child_frame=child_frame,
                 parent_frame=parent_frame,
@@ -417,6 +452,7 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
         kwargs = {
             "Pinhole:image_from_camera": image_from_camera,
             "Pinhole:resolution": resolution,
+            "Pinhole:distortion": distortion,
             "Pinhole:camera_xyz": camera_xyz,
             "Pinhole:child_frame": child_frame,
             "Pinhole:parent_frame": parent_frame,
@@ -481,6 +517,24 @@ class Pinhole(PinholeExt, Archetype, VisualizableArchetype):
     # ```
     #
     # `image_from_camera` project onto the space spanned by `(0,0)` and `resolution - 1`.
+    #
+    # Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
+    #
+    # (Docstring intentionally commented out to hide this field from the docs)
+
+    distortion: components.LensDistortionBatch | None = field(
+        metadata={"component": True},
+        default=None,
+        converter=components.LensDistortionBatch._converter,  # type: ignore[misc]
+    )
+    # Parametric lens distortion of the camera, in OpenCV coefficient ordering.
+    #
+    # If present, the viewer rectifies (undistorts) images shown under this camera so that
+    # the linear `image_from_camera` projection maps 3D geometry onto the correct pixels.
+    # The coefficients apply to normalized camera coordinates derived via `image_from_camera`,
+    # scaled by `resolution` (which therefore must be set for distortion to take effect).
+    #
+    # If not present, images are assumed to be already rectified (ideal pinhole).
     #
     # Any update to this field will reset all other transform properties that aren't changed in the same log call or `send_columns` row.
     #

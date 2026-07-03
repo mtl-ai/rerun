@@ -31,6 +31,13 @@ from .image_format import ImageFormat, ImageFormatArrayLike, ImageFormatBatch, I
 from .ivec3d import IVec3D, IVec3DArrayLike, IVec3DBatch, IVec3DLike
 from .keypoint_id import KeypointId, KeypointIdArrayLike, KeypointIdBatch, KeypointIdLike
 from .keypoint_pair import KeypointPair, KeypointPairArrayLike, KeypointPairBatch, KeypointPairLike
+from .lens_distortion import LensDistortion, LensDistortionArrayLike, LensDistortionBatch, LensDistortionLike
+from .lens_distortion_model import (
+    LensDistortionModel,
+    LensDistortionModelArrayLike,
+    LensDistortionModelBatch,
+    LensDistortionModelLike,
+)
 from .mat3x3 import Mat3x3, Mat3x3ArrayLike, Mat3x3Batch, Mat3x3Like
 from .mat4x4 import Mat4x4, Mat4x4ArrayLike, Mat4x4Batch, Mat4x4Like
 from .pixel_format import PixelFormat, PixelFormatArrayLike, PixelFormatBatch, PixelFormatLike
@@ -167,6 +174,14 @@ __all__ = [
     "KeypointPairArrayLike",
     "KeypointPairBatch",
     "KeypointPairLike",
+    "LensDistortion",
+    "LensDistortionArrayLike",
+    "LensDistortionBatch",
+    "LensDistortionLike",
+    "LensDistortionModel",
+    "LensDistortionModelArrayLike",
+    "LensDistortionModelBatch",
+    "LensDistortionModelLike",
     "Mat3x3",
     "Mat3x3ArrayLike",
     "Mat3x3Batch",

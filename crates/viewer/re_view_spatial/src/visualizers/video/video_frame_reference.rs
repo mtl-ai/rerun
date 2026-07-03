@@ -19,6 +19,7 @@ use crate::PickableTexturedRect;
 use crate::contexts::SpatialSceneVisualizerInstructionContext;
 use crate::visualizers::SpatialViewVisualizerData;
 use crate::visualizers::entity_iterator::process_archetype;
+use crate::visualizers::utilities::rect_distortion_for_entity;
 use crate::visualizers::video::{
     AT_TIME_CURSOR_SALT, VideoFrameRenderInfo, VideoPlaybackIssue, VideoPlaybackIssueSeverity,
     show_video_frame, video_stream_id, video_stream_processing_issue,
@@ -267,6 +268,7 @@ impl VideoFrameReferenceVisualizer {
                     Some(issue),
                     None,
                     None,
+                    None,
                 );
                 return;
             }
@@ -291,6 +293,7 @@ impl VideoFrameReferenceVisualizer {
             frame_output.error.map(VideoPlaybackIssue::from),
             None,
             bit_depth,
+            rect_distortion_for_entity(spatial_ctx.transforms, spatial_ctx.transform_info),
         );
     }
 }

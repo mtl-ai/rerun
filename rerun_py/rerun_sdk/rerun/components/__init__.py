@@ -57,6 +57,7 @@ from .key_value_pairs import KeyValuePairs, KeyValuePairsArrayLike, KeyValuePair
 from .keypoint_id import KeypointId, KeypointIdBatch
 from .lat_lon import LatLon, LatLonBatch
 from .length import Length, LengthBatch
+from .lens_distortion import LensDistortion, LensDistortionBatch
 from .line_strip2d import LineStrip2D, LineStrip2DArrayLike, LineStrip2DBatch, LineStrip2DLike
 from .line_strip3d import LineStrip3D, LineStrip3DArrayLike, LineStrip3DBatch, LineStrip3DLike
 from .linear_speed import LinearSpeed, LinearSpeedBatch
@@ -215,6 +216,8 @@ __all__ = [
     "LatLonBatch",
     "Length",
     "LengthBatch",
+    "LensDistortion",
+    "LensDistortionBatch",
     "LineStrip2D",
     "LineStrip2DArrayLike",
     "LineStrip2DBatch",
