@@ -2,6 +2,7 @@ use crate::parsers::MessageParser;
 
 mod definitions;
 
+pub mod foxglove_msgs;
 pub mod scalar_parser;
 pub mod sensor_msgs;
 pub mod std_msgs;
