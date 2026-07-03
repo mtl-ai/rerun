@@ -9,10 +9,46 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::App;
 
-type AppCreator = Box<dyn FnOnce(&eframe::CreationContext<'_>) -> App>;
+/// Deferred [`App`] construction — the harness provides the `CreationContext`.
+pub type AppCreator = Box<dyn FnOnce(&eframe::CreationContext<'_>) -> App>;
 
 /// Default headless viewport size (logical points).
-const DEFAULT_HEADLESS_SIZE: (f32, f32) = (1920.0, 1080.0);
+pub(crate) const DEFAULT_HEADLESS_SIZE: (f32, f32) = (1920.0, 1080.0);
+
+/// Build an `egui_kittest` harness driving the real [`App`] with a surfaceless
+/// wgpu device — the shared construction behind [`run_headless_app`] and
+/// [`crate::render_to_video::run_render_app`].
+///
+/// `on_repaint_requested` (if given) is invoked whenever something calls
+/// `ctx.request_repaint()`; the interactive headless loop uses it to wake up
+/// early, while the render-to-video loop drives frames itself and passes `None`.
+pub(crate) fn build_headless_harness(
+    app_creator: AppCreator,
+    force_wgpu_backend: Option<&str>,
+    size: egui::Vec2,
+    on_repaint_requested: Option<Box<dyn Fn() + Send + Sync>>,
+) -> eframe::Result<egui_kittest::Harness<'static, App>> {
+    let wgpu_setup = crate::wgpu_options(force_wgpu_backend).wgpu_setup;
+
+    let mut init_result = Ok(());
+    let init_result_mut = &mut init_result;
+
+    let harness = egui_kittest::Harness::<App>::builder()
+        .with_size(size)
+        .wgpu_setup(wgpu_setup)
+        .build_eframe(move |cc| {
+            if let Some(on_repaint_requested) = on_repaint_requested {
+                cc.egui_ctx
+                    .set_request_repaint_callback(move |_info| on_repaint_requested());
+            }
+            *init_result_mut = crate::customize_eframe_and_setup_renderer(cc);
+            app_creator(cc)
+        });
+
+    init_result.map_err(|err| eframe::Error::AppCreation(Box::new(err)))?;
+
+    Ok(harness)
+}
 
 /// Run the viewer in headless mode.
 ///
@@ -30,35 +66,25 @@ pub fn run_headless_app(
     let size = initial_size
         .unwrap_or_else(|| egui::vec2(DEFAULT_HEADLESS_SIZE.0, DEFAULT_HEADLESS_SIZE.1));
 
-    let wgpu_setup = crate::wgpu_options(force_wgpu_backend).wgpu_setup;
-
     // Signal flipped to `true` whenever something calls `ctx.request_repaint()`.
     // The headless loop uses this to wake up early instead of waiting the full
     // 1s idle tick — keeps animations and incoming gRPC data feeling snappy
     // while still letting an idle viewer sleep most of the time.
     let repaint_signal: Arc<(Mutex<bool>, Condvar)> = Arc::new((Mutex::new(false), Condvar::new()));
 
-    let mut init_result = Ok(());
-    let init_result_mut = &mut init_result;
-
     let mut harness = {
         let repaint_signal = repaint_signal.clone();
-        egui_kittest::Harness::<App>::builder()
-            .with_size(size)
-            .wgpu_setup(wgpu_setup)
-            .build_eframe(move |cc| {
-                let repaint_signal = repaint_signal.clone();
-                cc.egui_ctx.set_request_repaint_callback(move |_info| {
-                    let (lock, cvar) = &*repaint_signal;
-                    *lock.lock() = true;
-                    cvar.notify_all();
-                });
-                *init_result_mut = crate::customize_eframe_and_setup_renderer(cc);
-                app_creator(cc)
-            })
+        build_headless_harness(
+            app_creator,
+            force_wgpu_backend,
+            size,
+            Some(Box::new(move || {
+                let (lock, cvar) = &*repaint_signal;
+                *lock.lock() = true;
+                cvar.notify_all();
+            })),
+        )?
     };
-
-    init_result.map_err(|err| eframe::Error::AppCreation(Box::new(err)))?;
 
     re_log::info!("Headless viewer running at {}x{}.", size.x, size.y);
 
