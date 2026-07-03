@@ -80,6 +80,14 @@ struct PlayerEntry {
     /// Was this used last frame?
     /// This is reset every frame, and used to determine whether to purge the player.
     used_last_frame: bool,
+
+    /// Did the last [`VideoPlayer::frame_at`] on this player return an error?
+    ///
+    /// An erroring player (e.g. the time cursor sits before the stream's first
+    /// sample, or before its first keyframe) cannot get closer to the requested
+    /// frame by being polled again, so [`Video::all_active_players_up_to_date`]
+    /// must not report it as worth waiting for.
+    errored_last_frame: bool,
 }
 
 /// Video data + decoder(s).
@@ -203,6 +211,7 @@ impl Video {
                 vacant_entry.insert(PlayerEntry {
                     player: new_player,
                     used_last_frame: true,
+                    errored_last_frame: false,
                 })
             }
         };
@@ -216,6 +225,8 @@ impl Video {
             },
             video_source,
         );
+
+        decoder_entry.errored_last_frame = status.is_err();
 
         let output = decoder_entry.player.output();
 
@@ -287,6 +298,39 @@ impl Video {
                 player.shift_indices(change_end, size_delta);
             }
         }
+    }
+
+    /// Whether every player that produced a frame this frame delivered the exact
+    /// frame that was requested of it.
+    ///
+    /// A player counts as up to date when its [`DecoderDelayState`] is
+    /// [`DecoderDelayState::UpToDate`] (exact frame delivered) or
+    /// [`DecoderDelayState::UpToDateToleratedEdgeOfLiveStream`] (at the tail of
+    /// the stream, where the decoder holds back output until end-of-video and
+    /// waiting longer cannot improve the result). `UpToDateWithinTolerance` and
+    /// `Behind` — stale fallback textures — count as not up to date.
+    ///
+    /// Used by offscreen video export to decide whether a rendered frame is
+    /// complete or needs another pass while the async decoders catch up.
+    ///
+    /// A player whose last poll returned an error counts as up to date: an
+    /// error (no sample yet, no keyframe yet, decoder failure) is a state that
+    /// polling again at the same time cursor cannot improve, so it is as good
+    /// as this frame will ever get. Without this, a stream that starts
+    /// mid-GOP pins every pre-keyframe frame of an export at the settle-step
+    /// ceiling.
+    pub fn all_active_players_up_to_date(&self) -> bool {
+        self.players
+            .lock()
+            .values()
+            .filter(|entry| entry.used_last_frame && !entry.errored_last_frame)
+            .all(|entry| {
+                matches!(
+                    entry.player.decoder_delay_state(),
+                    DecoderDelayState::UpToDate
+                        | DecoderDelayState::UpToDateToleratedEdgeOfLiveStream
+                )
+            })
     }
 
     /// Removes all decoders that have been unused in the last frame.

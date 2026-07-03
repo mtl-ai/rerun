@@ -206,3 +206,48 @@ The original v1/v2 split therefore resolves as: v1 loop = `--deterministic`
 default (faithful-to-playback frames, fastest). Still open from the original
 list: per-view `ScreenshotProcessor` capture (`--view`, chrome-free single
 view) and live-source recording.
+
+## Addendum (2026-07-06): `--listen` — live SDK logging → mp4, no intermediate .rrd
+
+`rerun render --listen[=<addr>] -o out.mp4 [--fps N --timeline T --blueprint B]`
+replaces the input file with a gRPC server (spawned exactly like `--headless`;
+default bind `0.0.0.0:9876`). An SDK producer connects, logs frames on an
+**integer (sequence) timeline** — `rr.set_time("frame", sequence=n)` — and the
+renderer encodes them as they arrive. Input path and `--listen` are mutually
+exclusive; so are `--start`/`--end`/`--deterministic` (a live stream has no
+known end and no random access).
+
+**Tick-completeness rule (the core idea).** The gRPC stream is delivered
+in-order, so the moment any data arrives with a tick **above** N, tick N can
+never change again → render it exactly once, read back, encode, advance. Ticks
+step by 1 from the first logged tick; latest-at semantics fill sparse ticks.
+This gives one-tick latency and **zero wall-clock coupling**: throughput is
+whatever the slowest of producer, render, and encode sustains — `--fps` is only
+the timebase stamped on the mp4. (Caveat: the SDK's micro-batcher flushes
+per-entity chunks every few ms, so cross-entity data can trail the tick
+high-water mark by up to one flush interval; a lagging entity then shows its
+previous tick's value via latest-at. Producers that flush per tick are exact.)
+
+**End of stream.** The engine polls the producer lifecycle through new
+write-client counters on `re_grpc_server::MessageProxyHandle`
+(`num_connected_write_clients` / `num_write_clients_ever`, maintained by an
+RAII guard around the `WriteMessages` handler). On disconnect the engine drains
+in-flight messages (steps until the chunk store's generation is quiet for
+250 ms, bounded at 10 s), renders every remaining tick — **including the last
+one**, which never sees a higher tick — flushes the encoder, and exits 0.
+
+**Timeline pick.** An explicit `--timeline` must turn out to be a sequence
+timeline (a temporal one is a hard error). Otherwise the engine waits (10 s
+grace after first data) for the producer's own sequence timeline; the
+SDK-builtin `log_tick` never auto-qualifies (it advances per log *call*, not
+per producer frame) but can be requested explicitly. If only temporal timelines
+ever appear, the run bails with a clear error instead of guessing.
+
+**Sad paths.** No client within `--connect-timeout` (default 60 s) → clean
+error, no hang. Client disconnects after a single tick → 1-frame mp4, exit 0.
+
+**v1 limits** (documented, not enforced beyond the first): single client,
+single recording; long-run memory is bounded by the viewer's normal store GC,
+not by the renderer. Engine entry point:
+`re_viewer::run_render_listen_app` (same harness, panels, video-settle
+predicate, pipelined `FrameCapture`, and encoder writer thread as file mode).

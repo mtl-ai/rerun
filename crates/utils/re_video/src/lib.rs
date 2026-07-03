@@ -3,6 +3,7 @@
 mod av1;
 mod decode;
 mod demux;
+pub mod encode;
 mod gop_detection;
 mod h264;
 mod h265;
