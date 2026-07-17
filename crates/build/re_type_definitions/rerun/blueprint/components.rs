@@ -36,6 +36,8 @@ mod eye3d_kind;
 mod filter_by_range;
 #[path = "components/filter_is_not_null.def.rs"]
 mod filter_is_not_null;
+#[path = "components/follow_delay_ms.def.rs"]
+mod follow_delay_ms;
 #[path = "components/force_distance.def.rs"]
 mod force_distance;
 #[path = "components/force_iterations.def.rs"]
@@ -127,6 +129,7 @@ pub use self::enabled::*;
 pub use self::eye3d_kind::*;
 pub use self::filter_by_range::*;
 pub use self::filter_is_not_null::*;
+pub use self::follow_delay_ms::*;
 pub use self::force_distance::*;
 pub use self::force_iterations::*;
 pub use self::force_strength::*;

@@ -31,6 +31,10 @@ pub struct TimePanelBlueprint {
     #[rerun(optional)]
     pub playback_speed: Option<rerun::blueprint::components::PlaybackSpeed>,
 
+    /// Follow delay ms. Only applicable for follow mode
+    #[rerun(optional)]
+    pub follow_delay_ms: Option<rerun::blueprint::components::FollowDelayMs>,
+
     /// Frames per second. Only applicable for sequence timelines.
     #[rerun(optional)]
     pub fps: Option<rerun::blueprint::components::Fps>,
