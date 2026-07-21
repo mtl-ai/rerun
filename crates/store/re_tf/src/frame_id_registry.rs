@@ -63,13 +63,18 @@ impl FrameIdRegistry {
         let identifier_child_frame = archetypes::Transform3D::descriptor_child_frame().component;
         let identifier_pinhole_child_frame =
             archetypes::Pinhole::descriptor_child_frame().component;
+        let identifier_frozen_frame =
+            archetypes::FrozenTransform::descriptor_frozen_frame().component;
 
         let frame_components = [
             identifier_child_frame,
             identifier_pinhole_child_frame,
+            identifier_frozen_frame,
             archetypes::Transform3D::descriptor_parent_frame().component,
             archetypes::Pinhole::descriptor_parent_frame().component,
             archetypes::CoordinateFrame::descriptor_frame().component,
+            archetypes::FrozenTransform::descriptor_parent_frame().component,
+            archetypes::FrozenTransform::descriptor_child_frame().component,
         ];
 
         // Warn on empty frame IDs, but collect the affected components first.
@@ -87,8 +92,14 @@ impl FrameIdRegistry {
                         );
 
                     // Keep track of child frames and which entities they belong to.
+                    //
+                    // `FrozenTransform::frozen_frame` is the frame this archetype introduces
+                    // (analogous to `Transform3D`/`Pinhole`'s `child_frame`); its own
+                    // `parent_frame`/`child_frame` are references to *existing* frames being
+                    // resolved, not new child frames of this entity.
                     if component == identifier_child_frame
                         || component == identifier_pinhole_child_frame
+                        || component == identifier_frozen_frame
                     {
                         self.child_frames_per_entity
                             .entry(chunk.entity_path().hash())
