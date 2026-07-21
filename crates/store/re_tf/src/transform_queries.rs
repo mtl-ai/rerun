@@ -128,6 +128,18 @@ pub fn atomic_component_set_for_pinhole_projection() -> &'static [ComponentIdent
     })
 }
 
+pub fn atomic_component_set_for_frozen_transform() -> &'static [ComponentIdentifier] {
+    static ATOMIC_COMPONENTS_FOR_FROZEN_TRANSFORM: OnceLock<[ComponentIdentifier; 2]> =
+        OnceLock::new();
+
+    ATOMIC_COMPONENTS_FOR_FROZEN_TRANSFORM.get_or_init(|| {
+        [
+            archetypes::FrozenTransform::descriptor_parent_frame().component,
+            archetypes::FrozenTransform::descriptor_child_frame().component,
+        ]
+    })
+}
+
 /// Reads one `Transform3D` component value and reports non-mono rows as transform errors.
 fn mono_transform3d_component<C: Component>(
     chunk: &ChunkShared,
@@ -493,6 +505,47 @@ pub fn query_and_resolve_pinhole_projection_at_entity(
     })
 }
 
+/// The two named frames referenced by a [`archetypes::FrozenTransform`] row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, re_byte_size::SizeBytes)]
+pub struct FrozenTransformDeclaration {
+    /// The frame the resolved transform is connected into.
+    pub parent_frame: TransformFrameIdHash,
+
+    /// The frame the resolved transform is resolved from.
+    pub child_frame: TransformFrameIdHash,
+}
+
+/// Queries the `parent_frame` & `child_frame` referenced by a [`archetypes::FrozenTransform`] row.
+///
+/// Unlike [`query_and_resolve_tree_transform_at_entity`], this does not resolve an affine
+/// transform: doing so requires walking the transform graph itself (to resolve
+/// `parent_frame` -> `child_frame` at this row's own logged time), which is the caller's
+/// responsibility.
+pub fn query_and_resolve_frozen_transform_at_entity(
+    entity_db: &EntityDb,
+    missing_chunk_reporter: &MissingChunkReporter,
+    entity_path: &EntityPath,
+    chunk_id: ChunkId,
+    row_id: RowId,
+) -> Result<FrozenTransformDeclaration, TransformError> {
+    let identifier_parent_frame = archetypes::FrozenTransform::descriptor_parent_frame().component;
+    let identifier_child_frame = archetypes::FrozenTransform::descriptor_child_frame().component;
+
+    let storage_engine = entity_db.storage_engine();
+    let Some((chunk, row_index)) =
+        lookup_chunk_row(&storage_engine, missing_chunk_reporter, chunk_id, row_id)
+    else {
+        return Err(TransformError::MissingTransform {
+            entity_path: entity_path.clone(),
+        });
+    };
+
+    Ok(FrozenTransformDeclaration {
+        parent_frame: get_required_frame(chunk, row_index, entity_path, identifier_parent_frame)?,
+        child_frame: get_required_frame(chunk, row_index, entity_path, identifier_child_frame)?,
+    })
+}
+
 fn get_parent_frame(
     chunk: &ChunkShared,
     row_index: usize,
@@ -503,6 +556,31 @@ fn get_parent_frame(
         .component_mono::<components::TransformFrameId>(identifier_parent_frame, row_index)
         .and_then(|v| v.ok());
     resolve_parent_frame(parent_frame, entity_path, identifier_parent_frame)
+}
+
+/// Like [`get_parent_frame`], but for frame fields that are required (no implicit-frame
+/// fallback), such as [`archetypes::FrozenTransform`]'s `parent_frame` & `child_frame`.
+fn get_required_frame(
+    chunk: &ChunkShared,
+    row_index: usize,
+    entity_path: &EntityPath,
+    component: ComponentIdentifier,
+) -> Result<TransformFrameIdHash, TransformError> {
+    let frame = chunk
+        .component_mono::<components::TransformFrameId>(component, row_index)
+        .and_then(|v| v.ok())
+        .ok_or_else(|| TransformError::MissingTransform {
+            entity_path: entity_path.clone(),
+        })?;
+
+    if frame.as_str().is_empty() {
+        Err(TransformError::EmptyParentFrame {
+            entity_path: entity_path.clone(),
+            component,
+        })
+    } else {
+        Ok(TransformFrameIdHash::new(&frame))
+    }
 }
 
 fn resolve_parent_frame(

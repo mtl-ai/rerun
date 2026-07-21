@@ -6,6 +6,7 @@ use re_log_types::TimeInt;
 use super::cached_transform_value::CachedTransformValue;
 use super::parent_from_child_transform::ParentFromChildTransform;
 use super::resolved_pinhole_projection::ResolvedPinholeProjectionCached;
+use crate::transform_queries::FrozenTransformDeclaration;
 
 // TODO(RR-3539): replace this with a range-map, mapping non-overlapping
 // time ranges to transforms. That way we can avoid storing the same value multiple times, saving a lot of memory.
@@ -19,6 +20,12 @@ pub type FrameTransformTimeMap =
 pub type PinholeProjectionMap =
     BookkeepingBTreeMap<TimeInt, CachedTransformValue<ResolvedPinholeProjectionCached>>;
 
+// TODO(RR-3539): replace this with a range-map, mapping non-overlapping
+// time ranges to transforms. That way we can avoid storing the same value multiple times, saving a lot of memory.
+// Then we probably wouldn't need the BookkeepingBTreeMap either.
+pub type FrozenTransformMap =
+    BookkeepingBTreeMap<TimeInt, CachedTransformValue<FrozenTransformDeclaration>>;
+
 #[derive(Clone, Debug, PartialEq, re_byte_size::SizeBytes)]
 pub struct TransformsForChildFrameEvents {
     /// There can be only a single parent at any point in time, but it may change over time.
@@ -26,6 +33,8 @@ pub struct TransformsForChildFrameEvents {
     pub frame_transforms: FrameTransformTimeMap,
 
     pub pinhole_projections: PinholeProjectionMap,
+
+    pub frozen_transforms: FrozenTransformMap,
 }
 
 impl TransformsForChildFrameEvents {
@@ -33,6 +42,7 @@ impl TransformsForChildFrameEvents {
         Self {
             frame_transforms: Default::default(),
             pinhole_projections: Default::default(),
+            frozen_transforms: Default::default(),
         }
     }
 
@@ -41,10 +51,12 @@ impl TransformsForChildFrameEvents {
         let Self {
             frame_transforms,
             pinhole_projections,
+            frozen_transforms,
         } = self;
 
         frame_transforms.insert(time, CachedTransformValue::Cleared);
         pinhole_projections.insert(time, CachedTransformValue::Cleared);
+        frozen_transforms.insert(time, CachedTransformValue::Cleared);
     }
 
     /// Insert several cleared transforms for the given times.
@@ -59,18 +71,21 @@ impl TransformsForChildFrameEvents {
         let Self {
             frame_transforms,
             pinhole_projections,
+            frozen_transforms,
         } = self;
 
         frame_transforms.remove(&time);
         pinhole_projections.remove(&time);
+        frozen_transforms.remove(&time);
     }
 
     pub fn is_empty(&self) -> bool {
         let Self {
             frame_transforms,
             pinhole_projections,
+            frozen_transforms,
         } = self;
 
-        frame_transforms.is_empty() && pinhole_projections.is_empty()
+        frame_transforms.is_empty() && pinhole_projections.is_empty() && frozen_transforms.is_empty()
     }
 }
