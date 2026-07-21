@@ -3,13 +3,22 @@ use re_byte_size::SizeBytes as _;
 use re_chunk_store::{LatestAtQuery, MissingChunkReporter};
 use re_entity_db::EntityDb;
 use re_log::debug_assert;
+use re_log_types::{TimeInt, TimelineName};
 
 use crate::frame_id_registry::FrameIdRegistry;
+use crate::transform_queries::FrozenTransformDeclaration;
 use crate::transform_resolution_cache::ParentFromChildTransform;
 use crate::{
     CachedTransformsForTimeline, ResolvedPinholeProjection, TransformFrameIdHash,
     TransformResolutionCache, image_view_coordinates,
 };
+
+/// Maximum recursion depth when resolving nested [`FrozenTransformDeclaration`]s.
+///
+/// A `FrozenTransform` resolves `parent_frame -> child_frame` by building a nested forest at its
+/// own logged time; if that nested resolution itself depends on another (possibly unresolved)
+/// `FrozenTransform`, this bounds how deep we're willing to follow that chain before giving up.
+const MAX_FROZEN_TRANSFORM_RECURSION_DEPTH: usize = 8;
 
 /// Details on how to transform from a source to a target frame.
 #[derive(Clone, Debug, PartialEq, re_byte_size::SizeBytes)]
@@ -183,6 +192,36 @@ impl TransformForest {
         transform_cache: &TransformResolutionCache,
         query: &LatestAtQuery,
     ) -> Self {
+        let transforms = transform_cache.transforms_for_timeline(query.timeline());
+        let frame_id_registry = transform_cache.frame_id_registry();
+
+        Self::new_impl(
+            entity_db,
+            &transforms,
+            &frame_id_registry,
+            query,
+            frame_id_registry.iter_frame_id_hashes(),
+            0,
+        )
+    }
+
+    /// Like [`Self::new`], but:
+    /// * operates directly on an already-resolved timeline cache & frame registry instead of a
+    ///   [`TransformResolutionCache`] + timeline lookup,
+    /// * only walks from the given `seed_frames` instead of every frame known to the registry,
+    /// * tracks recursion depth so that resolving a [`FrozenTransformDeclaration`] (which itself
+    ///   requires a nested forest resolution) can't recurse indefinitely.
+    ///
+    /// Used by [`Self::new`] (seeded with every known frame, at depth 0) and, recursively, when
+    /// resolving a `FrozenTransform` (seeded with just its `parent_frame`/`child_frame`).
+    fn new_impl(
+        entity_db: &EntityDb,
+        transforms: &CachedTransformsForTimeline,
+        frame_id_registry: &FrameIdRegistry,
+        query: &LatestAtQuery,
+        seed_frames: impl Iterator<Item = TransformFrameIdHash>,
+        recursion_depth: usize,
+    ) -> Self {
         re_tracing::profile_function!();
 
         // Algorithm overview:
@@ -199,9 +238,7 @@ impl TransformForest {
         //
         // Repeat steps 1) & 2) until we've processed all frames.
 
-        let transforms = transform_cache.transforms_for_timeline(query.timeline());
-        let frame_id_registry = transform_cache.frame_id_registry();
-        let mut unprocessed_frames: IntSet<_> = frame_id_registry.iter_frame_id_hashes().collect();
+        let mut unprocessed_frames: IntSet<_> = seed_frames.collect();
         let mut transform_stack = Vec::new(); // Keep pushing & draining from the same vector as a simple performance optimization.
 
         let mut forest = Self::default();
@@ -214,8 +251,9 @@ impl TransformForest {
                 &forest.missing_chunk_reporter,
                 query,
                 current_frame,
-                &frame_id_registry,
-                &transforms,
+                frame_id_registry,
+                transforms,
+                recursion_depth,
                 &mut unprocessed_frames,
                 &mut transform_stack,
             );
@@ -225,7 +263,7 @@ impl TransformForest {
                 !transform_stack.is_empty(),
                 "There should be at least one element in the transform stack since we know we had at least one unprocessed element to start with."
             );
-            forest.add_stack_of_transforms(transform_cache, &mut transform_stack);
+            forest.add_stack_of_transforms(frame_id_registry, &mut transform_stack);
             debug_assert!(
                 transform_stack.is_empty(),
                 "Expected add_stack_of_transforms to consume an entire transform stack."
@@ -246,7 +284,7 @@ impl TransformForest {
     /// Each stack in the transform is a parent item of the item before it.
     fn add_stack_of_transforms(
         &mut self,
-        cache: &TransformResolutionCache,
+        frame_id_registry: &FrameIdRegistry,
         transform_stack: &mut Vec<ParentChildTransforms>,
     ) {
         re_tracing::profile_function!();
@@ -330,7 +368,7 @@ impl TransformForest {
                 debug_assert!(
                     previous_root.is_none(),
                     "Root was added already at {:?} as {previous_root:?}",
-                    cache.frame_id_registry().lookup_frame_id(root_frame)
+                    frame_id_registry.lookup_frame_id(root_frame)
                 ); // TODO(RR-2667): Build out into cycle detection
 
                 root_from_current_frame = glam::DAffine3::IDENTITY;
@@ -348,7 +386,6 @@ impl TransformForest {
             // TODO(RR-2667): Build out into cycle detection
             #[cfg(debug_assertions)]
             {
-                let frame_id_registry = cache.frame_id_registry();
                 debug_assert!(
                     _previous_transform.is_none(),
                     "Root from frame relationship was added already for {:?}. Now targeting {:?}, previously {:?}",
@@ -389,6 +426,7 @@ fn walk_towards_parent(
     current_frame: TransformFrameIdHash,
     id_registry: &FrameIdRegistry,
     transforms: &CachedTransformsForTimeline,
+    recursion_depth: usize,
     unprocessed_frames: &mut IntSet<TransformFrameIdHash>,
     transform_stack: &mut Vec<ParentChildTransforms>,
 ) {
@@ -411,6 +449,7 @@ fn walk_towards_parent(
             query,
             id_registry,
             transforms,
+            recursion_depth,
         );
         next_frame = transforms.parent_frame;
 
@@ -724,20 +763,28 @@ fn transforms_at(
     query: &LatestAtQuery,
     id_registry: &FrameIdRegistry,
     transforms_for_timeline: &CachedTransformsForTimeline,
+    recursion_depth: usize,
 ) -> ParentChildTransforms {
     #![expect(clippy::useless_let_if_seq)]
 
     let mut parent_from_child;
     let pinhole_projection;
+    let frozen_transform;
 
     if let Some(source_transforms) = transforms_for_timeline.frame_transforms(child_frame) {
         parent_from_child =
             source_transforms.latest_at_transform(entity_db, missing_chunk_reporter, query);
         pinhole_projection =
             source_transforms.latest_at_pinhole(entity_db, missing_chunk_reporter, query);
+        frozen_transform = source_transforms.latest_at_frozen_transform_with_metadata(
+            entity_db,
+            missing_chunk_reporter,
+            query,
+        );
     } else {
         parent_from_child = None;
         pinhole_projection = None;
+        frozen_transform = None;
     }
 
     // Parent frame may be defined on either the pinhole projection or `parent_from_child`, or implicitly via entity derived transform frames.
@@ -778,6 +825,36 @@ fn transforms_at(
     } else if let Some(pinhole_projection) = pinhole_projection.as_ref() {
         // If there's no regular transform, maybe the Pinhole has a connection to offer.
         Some(pinhole_projection.parent)
+    } else if let Some((frozen_transform_time, declaration)) = frozen_transform {
+        // This frame is the `frozen_frame` of a `FrozenTransform`: resolve `parent_frame ->
+        // child_frame` at the time the `FrozenTransform` was itself logged, and connect the
+        // result as a fixed edge into `parent_frame`. If that can't be resolved, fall back to an
+        // identity connection from `child_frame`.
+        match resolve_frozen_transform(
+            entity_db,
+            missing_chunk_reporter,
+            &declaration,
+            frozen_transform_time,
+            query.timeline(),
+            id_registry,
+            transforms_for_timeline,
+            recursion_depth,
+        ) {
+            Some(transform) => {
+                parent_from_child = Some(ParentFromChildTransform {
+                    parent: declaration.parent_frame,
+                    transform,
+                });
+                Some(declaration.parent_frame)
+            }
+            None => {
+                parent_from_child = Some(ParentFromChildTransform {
+                    parent: declaration.child_frame,
+                    transform: glam::DAffine3::IDENTITY,
+                });
+                Some(declaration.child_frame)
+            }
+        }
     } else if let Some(parent) = implicit_transform_parent(child_frame, id_registry) {
         // Maybe there's an implicit connection that we have to fill in?
         // Implicit connections are identity connections!
@@ -796,6 +873,72 @@ fn transforms_at(
         parent_from_child,
         pinhole_projection,
     }
+}
+
+/// Resolves a [`FrozenTransformDeclaration`]'s `parent_frame -> child_frame` at the time the
+/// `FrozenTransform` was itself logged, by building a small nested forest seeded with just those
+/// two frames.
+///
+/// Returns `None` if no connection between the two frames could be resolved (e.g. they're in
+/// disconnected trees, or the recursion depth limit was hit), in which case the caller falls back
+/// to an identity connection from `child_frame`.
+fn resolve_frozen_transform(
+    entity_db: &EntityDb,
+    missing_chunk_reporter: &MissingChunkReporter,
+    declaration: &FrozenTransformDeclaration,
+    frozen_transform_time: TimeInt,
+    timeline: Option<TimelineName>,
+    id_registry: &FrameIdRegistry,
+    transforms_for_timeline: &CachedTransformsForTimeline,
+    recursion_depth: usize,
+) -> Option<glam::DAffine3> {
+    if recursion_depth >= MAX_FROZEN_TRANSFORM_RECURSION_DEPTH {
+        re_log::warn_once!(
+            "Exceeded max recursion depth ({MAX_FROZEN_TRANSFORM_RECURSION_DEPTH}) while resolving a FrozenTransform from {:?} to {:?}; treating as unresolved.",
+            id_registry.lookup_frame_id(declaration.child_frame),
+            id_registry.lookup_frame_id(declaration.parent_frame),
+        );
+        return None;
+    }
+
+    // The `FrozenTransform` row's own time may itself be static (if it was logged as such).
+    let nested_query = if frozen_transform_time.is_static() {
+        LatestAtQuery::new_static()
+    } else if let Some(timeline) = timeline {
+        LatestAtQuery::new(timeline, frozen_transform_time)
+    } else {
+        // A non-static time without a timeline shouldn't happen: `transforms_for_timeline` is
+        // itself always associated with either a real timeline or the static store.
+        re_log::debug_panic!(
+            "FrozenTransform resolved to a non-static time without a timeline being available"
+        );
+        return None;
+    };
+
+    let nested_forest = TransformForest::new_impl(
+        entity_db,
+        transforms_for_timeline,
+        id_registry,
+        &nested_query,
+        [declaration.parent_frame, declaration.child_frame].into_iter(),
+        recursion_depth + 1,
+    );
+
+    if nested_forest.any_missing_chunks() {
+        missing_chunk_reporter.report_missing_chunk();
+    }
+
+    nested_forest
+        .transform_from_to(
+            declaration.parent_frame,
+            std::iter::once(declaration.child_frame),
+            // TODO(RR-????): this doesn't account for a custom `ImagePlaneDistance` override
+            // should `parent_frame`/`child_frame` be bridged by a pinhole.
+            &|_| 1.0,
+        )
+        .next()
+        .and_then(|(_source, result)| result.ok())
+        .map(|tree_transform| tree_transform.target_from_source)
 }
 
 #[cfg(test)]
