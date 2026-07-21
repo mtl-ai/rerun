@@ -34,6 +34,8 @@ mod ellipsoids3d;
 mod encoded_depth_image;
 #[path = "archetypes/encoded_image.def.rs"]
 mod encoded_image;
+#[path = "archetypes/frozen_transform.def.rs"]
+mod frozen_transform;
 #[path = "archetypes/gaussian_splats3d.def.rs"]
 mod gaussian_splats3d;
 #[path = "archetypes/geo_line_strings.def.rs"]
@@ -120,6 +122,7 @@ pub use self::ellipses2d::*;
 pub use self::ellipsoids3d::*;
 pub use self::encoded_depth_image::*;
 pub use self::encoded_image::*;
+pub use self::frozen_transform::*;
 pub use self::gaussian_splats3d::*;
 pub use self::geo_line_strings::*;
 pub use self::geo_points::*;
