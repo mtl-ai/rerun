@@ -297,11 +297,7 @@ impl CachedTransformsForTimeline {
                 atomic_component_set_for_frozen_transform(),
             ) {
                 if let Some(transforms) = self.per_child_frame_transforms.get_mut(&frame) {
-                    transforms
-                        .events
-                        .get_mut()
-                        .frozen_transforms
-                        .remove(&time);
+                    transforms.events.get_mut().frozen_transforms.remove(&time);
                 }
             }
         }
