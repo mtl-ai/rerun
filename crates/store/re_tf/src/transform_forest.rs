@@ -1629,4 +1629,133 @@ mod tests {
 
         Ok(())
     }
+
+    /// A test scene for `FrozenTransform`: a named frame `root -> moving` whose translation changes
+    /// over time, plus a single `FrozenTransform(parent_frame: "root", child_frame: "moving", frozen_frame: "frozen")`
+    /// logged once, at the time of the first translation.
+    fn frozen_transform_test_scene() -> Result<EntityDb, Box<dyn std::error::Error>> {
+        let mut entity_db = EntityDb::new(StoreInfo::testing().store_id);
+
+        entity_db.add_chunk(&Arc::new(
+            Chunk::builder(EntityPath::from("tf"))
+                .with_archetype_auto_row(
+                    [(Timeline::log_tick(), 0)],
+                    &archetypes::Transform3D::from_translation([1.0, 0.0, 0.0])
+                        .with_child_frame("moving")
+                        .with_parent_frame("root"),
+                )
+                .with_archetype_auto_row(
+                    [(Timeline::log_tick(), 10)],
+                    &archetypes::Transform3D::from_translation([2.0, 0.0, 0.0])
+                        .with_child_frame("moving")
+                        .with_parent_frame("root"),
+                )
+                .build()?,
+        ))?;
+
+        entity_db.add_chunk(&Arc::new(
+            Chunk::builder(EntityPath::from("freeze"))
+                .with_archetype_auto_row(
+                    [(Timeline::log_tick(), 0)],
+                    &archetypes::FrozenTransform::new("root", "moving", "frozen"),
+                )
+                .build()?,
+        ))?;
+
+        Ok(entity_db)
+    }
+
+    #[test]
+    fn test_frozen_transform_resolves_at_own_logged_time() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let test_scene = frozen_transform_test_scene()?;
+        let mut transform_cache = TransformResolutionCache::new(&test_scene);
+        transform_cache.ensure_timeline_is_initialized(
+            test_scene.storage_engine().store(),
+            TimelineName::log_tick(),
+        );
+
+        // Query well after the second `root -> moving` update: this must not affect the frozen result.
+        let query = LatestAtQuery::new(TimelineName::log_tick(), 10);
+        let transform_forest = TransformForest::new(&test_scene, &transform_cache, &query);
+        assert!(!transform_forest.any_missing_chunks());
+
+        // `frozen` should be connected to `root` using the translation logged at tick 0 ([1, 0, 0]),
+        // not the value logged at tick 10 ([2, 0, 0]).
+        assert_eq!(
+            transform_forest
+                .transform_from_to(
+                    TransformFrameIdHash::from_str("root"),
+                    std::iter::once(TransformFrameIdHash::from_str("frozen")),
+                    &|_| 1.0,
+                )
+                .collect::<Vec<_>>(),
+            vec![(
+                TransformFrameIdHash::from_str("frozen"),
+                Ok(TreeTransform {
+                    root: TransformFrameIdHash::from_str("root"),
+                    target_from_source: glam::DAffine3::from_translation(glam::dvec3(
+                        1.0, 0.0, 0.0
+                    )),
+                })
+            )]
+        );
+
+        Ok(())
+    }
+
+    /// A test scene with two disconnected named-frame trees, plus a `FrozenTransform` whose
+    /// `parent_frame`/`child_frame` reference frames from two different (disconnected) trees, so
+    /// no path between them can ever be resolved.
+    fn frozen_transform_fallback_test_scene() -> Result<EntityDb, Box<dyn std::error::Error>> {
+        let mut entity_db = EntityDb::new(StoreInfo::testing().store_id);
+
+        entity_db.add_chunk(&Arc::new(
+            Chunk::builder(EntityPath::from("tf_b"))
+                .with_archetype_auto_row(
+                    TimePoint::STATIC,
+                    &archetypes::Transform3D::from_translation([5.0, 0.0, 0.0])
+                        .with_child_frame("branch_b")
+                        .with_parent_frame("root_b"),
+                )
+                .build()?,
+        ))?;
+
+        // `root_a` never appears as anyone's child frame, and `branch_b` lives in a completely
+        // separate tree rooted at `root_b`: these two can never be connected.
+        entity_db.add_chunk(&Arc::new(
+            Chunk::builder(EntityPath::from("freeze"))
+                .with_archetype_auto_row(
+                    TimePoint::STATIC,
+                    &archetypes::FrozenTransform::new("root_a", "branch_b", "frozen"),
+                )
+                .build()?,
+        ))?;
+
+        Ok(entity_db)
+    }
+
+    #[test]
+    fn test_frozen_transform_fallback_to_identity_when_disconnected()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let test_scene = frozen_transform_fallback_test_scene()?;
+        let mut transform_cache = TransformResolutionCache::new(&test_scene);
+        transform_cache.ensure_timeline_is_initialized(
+            test_scene.storage_engine().store(),
+            TimelineName::log_tick(),
+        );
+
+        let query = LatestAtQuery::latest(TimelineName::log_tick());
+        let transform_forest = TransformForest::new(&test_scene, &transform_cache, &query);
+        assert!(!transform_forest.any_missing_chunks());
+
+        // `root_a` and `branch_b` are unconnected, so `frozen` falls back to an identity connection
+        // from `branch_b`: it ends up with exactly the same root & transform as `branch_b` itself.
+        assert_eq!(
+            transform_forest.root_from_frame(TransformFrameIdHash::from_str("frozen")),
+            transform_forest.root_from_frame(TransformFrameIdHash::from_str("branch_b")),
+        );
+
+        Ok(())
+    }
 }
