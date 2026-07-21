@@ -1,0 +1,30 @@
+namespace rerun.archetypes;
+
+/// Freezes the transform between two frames at a single point in time into a new, static frame.
+///
+/// When logged, resolves the transform from `parent_frame` to `child_frame` at the time this
+/// archetype was logged, and connects the result as a fixed (non-propagating) edge from
+/// `parent_frame` to `frozen_frame`. Any transforms logged between `parent_frame` and
+/// `child_frame` after this point in time do not affect `frozen_frame`.
+///
+/// If no transform relationship between `parent_frame` and `child_frame` can be resolved at the
+/// time this archetype was logged, `frozen_frame` falls back to an identity connection from
+/// `child_frame`.
+///
+/// To learn more about transforms see [Spaces & Transforms](https://rerun.io/docs/concepts/spaces-and-transforms) in the reference.
+table FrozenTransform (
+  "attr.docs.category": "Transforms",
+  "attr.docs.view_types": "Spatial3DView, Spatial2DView",
+  "attr.rerun.state": "unstable",
+  "attr.rerun.visualizer_none",
+  "attr.rust.derive": "PartialEq"
+) {
+  /// The frame to resolve the transform into.
+  parent_frame: rerun.components.TransformFrameId ("attr.rerun.component_required", "attr.rerun.component_no_ui_edit", order: 1000);
+
+  /// The frame to resolve the transform from.
+  child_frame: rerun.components.TransformFrameId ("attr.rerun.component_required", "attr.rerun.component_no_ui_edit", order: 1100);
+
+  /// The new, frozen frame that the resolved transform is connected to `parent_frame` under.
+  frozen_frame: rerun.components.TransformFrameId ("attr.rerun.component_required", "attr.rerun.component_no_ui_edit", order: 1200);
+}

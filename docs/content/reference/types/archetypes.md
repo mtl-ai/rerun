@@ -77,6 +77,7 @@ This page lists all built-in archetypes.
 ## Transforms
 
 * [`CoordinateFrame`](archetypes/coordinate_frame.md): Specifies the coordinate frame for an entity.
+* [`FrozenTransform`](archetypes/frozen_transform.md): Freezes the transform between two frames at a single point in time into a new, static frame.
 * [`Pinhole`](archetypes/pinhole.md): Camera perspective projection (a.k.a. intrinsics).
 * [`Transform3D`](archetypes/transform3d.md): A transform between two 3D spaces, i.e. a pose.
 * [`TransformAxes3D`](archetypes/transform_axes3d.md): A visual representation of a [`archetypes.Transform3D`](https://rerun.io/docs/reference/types/archetypes/transform3d).

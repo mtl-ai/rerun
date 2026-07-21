@@ -2493,6 +2493,38 @@ fn generate_archetype_reflection() -> ArchetypeReflectionMap {
             },
         ),
         (
+            ArchetypeName::from("rerun.archetypes.FrozenTransform"),
+            ArchetypeReflection {
+                display_name: "Frozen transform",
+                deprecation_summary: None,
+                scope: None,
+                view_types: &["Spatial3DView", "Spatial2DView"],
+                fields: vec![
+                    ArchetypeFieldReflection {
+                        name: "parent_frame",
+                        display_name: "Parent frame",
+                        component_type: "rerun.components.TransformFrameId".into(),
+                        docstring_md: "The frame to resolve the transform into.",
+                        flags: ArchetypeFieldFlags::REQUIRED,
+                    },
+                    ArchetypeFieldReflection {
+                        name: "child_frame",
+                        display_name: "Child frame",
+                        component_type: "rerun.components.TransformFrameId".into(),
+                        docstring_md: "The frame to resolve the transform from.",
+                        flags: ArchetypeFieldFlags::REQUIRED,
+                    },
+                    ArchetypeFieldReflection {
+                        name: "frozen_frame",
+                        display_name: "Frozen frame",
+                        component_type: "rerun.components.TransformFrameId".into(),
+                        docstring_md: "The new, frozen frame that the resolved transform is connected to `parent_frame` under.",
+                        flags: ArchetypeFieldFlags::REQUIRED,
+                    },
+                ],
+            },
+        ),
+        (
             ArchetypeName::from("rerun.archetypes.GeoLineStrings"),
             ArchetypeReflection {
                 display_name: "Geo line strings",
