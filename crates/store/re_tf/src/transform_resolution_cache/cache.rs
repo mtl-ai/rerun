@@ -418,7 +418,11 @@ impl TransformResolutionCache {
                     frame,
                     &frame_id_registry,
                 );
-                frame_transforms.invalidate_frozen_transform_at(TimeInt::STATIC, chunk.id(), row_id);
+                frame_transforms.invalidate_frozen_transform_at(
+                    TimeInt::STATIC,
+                    chunk.id(),
+                    row_id,
+                );
 
                 #[cfg_attr(not(debug_assertions), expect(clippy::for_kv_map))]
                 for (_timeline, per_timeline) in &mut self.per_timeline {

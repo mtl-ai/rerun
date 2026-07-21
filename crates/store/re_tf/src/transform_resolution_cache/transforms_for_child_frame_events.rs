@@ -86,6 +86,8 @@ impl TransformsForChildFrameEvents {
             frozen_transforms,
         } = self;
 
-        frame_transforms.is_empty() && pinhole_projections.is_empty() && frozen_transforms.is_empty()
+        frame_transforms.is_empty()
+            && pinhole_projections.is_empty()
+            && frozen_transforms.is_empty()
     }
 }
