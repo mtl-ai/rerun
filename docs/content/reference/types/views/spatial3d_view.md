@@ -73,6 +73,7 @@ snippet: views/spatial3d
 * [`CoordinateFrame`](../archetypes/coordinate_frame.md)
 * [`Cylinders3D`](../archetypes/cylinders3d.md)
 * [`Ellipsoids3D`](../archetypes/ellipsoids3d.md)
+* [`FrozenTransform`](../archetypes/frozen_transform.md)
 * [`GaussianSplats3D`](../archetypes/gaussian_splats3d.md)
 * [`GridMap`](../archetypes/grid_map.md)
 * [`InstancePoses3D`](../archetypes/instance_poses3d.md)

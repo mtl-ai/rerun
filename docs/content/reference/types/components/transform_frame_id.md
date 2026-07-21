@@ -31,5 +31,6 @@ Utf8
 ## Used by
 
 * [`CoordinateFrame`](../archetypes/coordinate_frame.md)
+* [`FrozenTransform`](../archetypes/frozen_transform.md)
 * [`Pinhole`](../archetypes/pinhole.md)
 * [`Transform3D`](../archetypes/transform3d.md)

@@ -19,6 +19,7 @@ from .ellipses2d import Ellipses2D
 from .ellipsoids3d import Ellipsoids3D
 from .encoded_depth_image import EncodedDepthImage
 from .encoded_image import EncodedImage
+from .frozen_transform import FrozenTransform
 from .gaussian_splats3d import GaussianSplats3D
 from .geo_line_strings import GeoLineStrings
 from .geo_points import GeoPoints
@@ -72,6 +73,7 @@ __all__ = [
     "Ellipsoids3D",
     "EncodedDepthImage",
     "EncodedImage",
+    "FrozenTransform",
     "GaussianSplats3D",
     "GeoLineStrings",
     "GeoPoints",
