@@ -13,8 +13,8 @@ use re_sdk_types::archetypes;
 use crate::frame_id_registry::FrameIdRegistry;
 use crate::transform_aspect::TransformAspect;
 use crate::transform_queries::{
-    atomic_component_set_for_instance_poses, atomic_component_set_for_pinhole_projection,
-    atomic_component_set_for_tree_transforms,
+    atomic_component_set_for_frozen_transform, atomic_component_set_for_instance_poses,
+    atomic_component_set_for_pinhole_projection, atomic_component_set_for_tree_transforms,
 };
 use crate::transform_resolution_cache::iter_relevant_rows_in_chunk;
 
@@ -289,6 +289,8 @@ impl TransformResolutionCache {
         let transform_child_frame_component =
             archetypes::Transform3D::descriptor_child_frame().component;
         let pinhole_child_frame_component = archetypes::Pinhole::descriptor_child_frame().component;
+        let frozen_transform_frozen_frame_component =
+            archetypes::FrozenTransform::descriptor_frozen_frame().component;
 
         let mut static_timeline = self.static_timeline.write();
         let frame_id_registry = self.frame_id_registry.read();
@@ -393,6 +395,42 @@ impl TransformResolutionCache {
                         chunk.id(),
                         row_id,
                     );
+
+                    // Entry might have been newly created. Have to ensure that its associated with the right timeline.
+                    #[cfg(debug_assertions)]
+                    {
+                        transforms.timeline = Some(*_timeline);
+                    }
+                }
+            }
+        }
+        if aspects.contains(TransformAspect::FrozenTransform) {
+            for ((time, row_id), frame) in iter_relevant_rows_in_chunk_with_child_frames(
+                chunk,
+                place_holder_timeline,
+                frozen_transform_frozen_frame_component,
+                atomic_component_set_for_frozen_transform(),
+            ) {
+                debug_assert_eq!(time, TimeInt::STATIC);
+
+                let frame_transforms = static_timeline.get_or_create_tree_transforms_static(
+                    entity_path,
+                    frame,
+                    &frame_id_registry,
+                );
+                frame_transforms.invalidate_frozen_transform_at(TimeInt::STATIC, chunk.id(), row_id);
+
+                #[cfg_attr(not(debug_assertions), expect(clippy::for_kv_map))]
+                for (_timeline, per_timeline) in &mut self.per_timeline {
+                    // Don't call `get_or_create_tree_transforms_temporal` here since we may not yet know a temporal entity that this is associated with.
+                    // Also, this may be the first time we associate with a static entity instead which `get_or_create_tree_transforms_static` takes care of.
+                    let mut per_timeline_guard = per_timeline.write();
+                    let transforms = per_timeline_guard.get_or_create_tree_transforms_static(
+                        entity_path,
+                        frame,
+                        &frame_id_registry,
+                    );
+                    transforms.invalidate_frozen_transform_at(TimeInt::STATIC, chunk.id(), row_id);
 
                     // Entry might have been newly created. Have to ensure that its associated with the right timeline.
                     #[cfg(debug_assertions)]

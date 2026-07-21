@@ -11,8 +11,8 @@ use crate::TransformFrameIdHash;
 use crate::frame_id_registry::FrameIdRegistry;
 use crate::transform_aspect::TransformAspect;
 use crate::transform_queries::{
-    atomic_component_set_for_instance_poses, atomic_component_set_for_pinhole_projection,
-    atomic_component_set_for_tree_transforms,
+    atomic_component_set_for_frozen_transform, atomic_component_set_for_instance_poses,
+    atomic_component_set_for_pinhole_projection, atomic_component_set_for_tree_transforms,
 };
 use crate::transform_resolution_cache::iter_relevant_rows_in_chunk;
 
@@ -129,6 +129,8 @@ impl CachedTransformsForTimeline {
             re_sdk_types::archetypes::Transform3D::descriptor_child_frame().component;
         let pinhole_child_frame_component =
             re_sdk_types::archetypes::Pinhole::descriptor_child_frame().component;
+        let frozen_transform_frozen_frame_component =
+            re_sdk_types::archetypes::FrozenTransform::descriptor_frozen_frame().component;
 
         if aspects.contains(TransformAspect::Frame) {
             for ((time, row_id), frame) in iter_relevant_rows_in_chunk_with_child_frames(
@@ -145,6 +147,23 @@ impl CachedTransformsForTimeline {
                     frame_id_registry,
                 )
                 .invalidate_transform_at(time, physical_chunk_id, row_id);
+            }
+        }
+        if aspects.contains(TransformAspect::FrozenTransform) {
+            for ((time, row_id), frame) in iter_relevant_rows_in_chunk_with_child_frames(
+                chunk,
+                timeline,
+                frozen_transform_frozen_frame_component,
+                atomic_component_set_for_frozen_transform(),
+            ) {
+                self.get_or_create_tree_transforms_temporal(
+                    entity_path,
+                    frame,
+                    timeline,
+                    static_timeline,
+                    frame_id_registry,
+                )
+                .invalidate_frozen_transform_at(time, physical_chunk_id, row_id);
             }
         }
         if aspects.contains(TransformAspect::Pose) {
@@ -209,6 +228,8 @@ impl CachedTransformsForTimeline {
             re_sdk_types::archetypes::Transform3D::descriptor_child_frame().component;
         let pinhole_child_frame_component =
             re_sdk_types::archetypes::Pinhole::descriptor_child_frame().component;
+        let frozen_transform_frozen_frame_component =
+            re_sdk_types::archetypes::FrozenTransform::descriptor_frozen_frame().component;
 
         // Remove any affected clears.
         if aspects.contains(TransformAspect::Clear) {
@@ -264,6 +285,22 @@ impl CachedTransformsForTimeline {
                         .events
                         .get_mut()
                         .pinhole_projections
+                        .remove(&time);
+                }
+            }
+        }
+        if aspects.contains(TransformAspect::FrozenTransform) {
+            for ((time, _row_id), frame) in iter_relevant_rows_in_chunk_with_child_frames(
+                chunk,
+                timeline,
+                frozen_transform_frozen_frame_component,
+                atomic_component_set_for_frozen_transform(),
+            ) {
+                if let Some(transforms) = self.per_child_frame_transforms.get_mut(&frame) {
+                    transforms
+                        .events
+                        .get_mut()
+                        .frozen_transforms
                         .remove(&time);
                 }
             }

@@ -16,6 +16,9 @@ bitflags::bitflags! {
 
         /// The entity has a clear component.
         const Clear = 1 << 3;
+
+        /// The entity defines a frozen transform, i.e. any component of [`archetypes::FrozenTransform`].
+        const FrozenTransform = 1 << 4;
     }
 }
 
@@ -29,6 +32,8 @@ impl TransformAspect {
             Self::Pinhole
         } else if archetypes::Clear::name() == archetype {
             Self::Clear
+        } else if archetypes::FrozenTransform::name() == archetype {
+            Self::FrozenTransform
         } else {
             Self::empty()
         }

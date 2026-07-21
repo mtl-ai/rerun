@@ -10,6 +10,7 @@ use re_log_types::{EntityPath, TimeInt, TimelineName};
 use re_sdk_types::{ChunkId, RowId};
 
 use crate::transform_queries::{
+    FrozenTransformDeclaration, query_and_resolve_frozen_transform_at_entity,
     query_and_resolve_pinhole_projection_at_entity, query_and_resolve_tree_transform_at_entity,
 };
 use crate::{ResolvedPinholeProjection, TransformFrameIdHash, query_view_coordinates};
@@ -190,6 +191,22 @@ impl TreeTransformsForChildFrame {
         );
     }
 
+    /// Inserts an invalidation point for frozen transforms.
+    pub fn invalidate_frozen_transform_at(
+        &mut self,
+        time: TimeInt,
+        chunk_id: ChunkId,
+        row_id: RowId,
+    ) {
+        let events = self.events.get_mut();
+        add_invalidated_entry_if_not_already_cleared(
+            &mut events.frozen_transforms,
+            time,
+            chunk_id,
+            row_id,
+        );
+    }
+
     #[inline]
     pub fn latest_at_transform(
         &self,
@@ -335,6 +352,79 @@ impl TreeTransformsForChildFrame {
                                 .unwrap_or(re_sdk_types::archetypes::Pinhole::DEFAULT_CAMERA_XYZ),
                         },
                     ))
+                },
+            )
+            .flatten()
+    }
+
+    /// Returns the `parent_frame`/`child_frame` declared by a [`crate::archetypes::FrozenTransform`]
+    /// targeting this frame, if any.
+    ///
+    /// Unlike [`Self::latest_at_transform`]/[`Self::latest_at_pinhole`], this doesn't resolve an
+    /// affine transform: resolving `parent_frame` -> `child_frame` requires walking the transform
+    /// graph itself, which is the caller's (i.e. [`crate::TransformForest`]'s) responsibility.
+    #[inline]
+    pub fn latest_at_frozen_transform(
+        &self,
+        entity_db: &EntityDb,
+        missing_chunk_reporter: &MissingChunkReporter,
+        query: &LatestAtQuery,
+    ) -> Option<FrozenTransformDeclaration> {
+        self.latest_at_frozen_transform_with_metadata(entity_db, missing_chunk_reporter, query)
+            .map(|(_, declaration)| declaration)
+    }
+
+    /// Like [`Self::latest_at_frozen_transform`], but also returns the time of the resolved entry.
+    #[inline]
+    pub(crate) fn latest_at_frozen_transform_with_metadata(
+        &self,
+        entity_db: &EntityDb,
+        missing_chunk_reporter: &MissingChunkReporter,
+        query: &LatestAtQuery,
+    ) -> Option<(TimeInt, FrozenTransformDeclaration)> {
+        #[cfg(debug_assertions)] // `self.timeline` is only present with `debug_assertions` enabled.
+        debug_assert!(query.timeline() == self.timeline || self.timeline.is_none());
+
+        let mut events = self.events.write();
+
+        events
+            .frozen_transforms
+            .mutate_latest_at(
+                &query.at(),
+                |time_of_last_update_to_this_frame, frozen_transform| {
+                    // Separate check to work around borrow checker issues.
+                    if let CachedTransformValue::Invalidated { row_id, chunk_id } = frozen_transform
+                    {
+                        let declaration = query_and_resolve_frozen_transform_at_entity(
+                            entity_db,
+                            missing_chunk_reporter,
+                            self.associated_entity_path(*time_of_last_update_to_this_frame),
+                            *chunk_id,
+                            *row_id,
+                        );
+
+                        *frozen_transform = match &declaration {
+                            Ok(declaration) => CachedTransformValue::Resident {
+                                value: *declaration,
+                                row_id: *row_id,
+                            },
+
+                            Err(err) => {
+                                // Only warn since we can still work just fine if a frozen transform didn't resolve.
+                                re_log::warn_once!("Failed to query frozen transform: {err}");
+                                CachedTransformValue::Cleared
+                            }
+                        };
+                    }
+
+                    let value = match frozen_transform {
+                        CachedTransformValue::Resident { value, .. } => *value,
+                        CachedTransformValue::Cleared => return None,
+                        CachedTransformValue::Invalidated { .. } => {
+                            unreachable!("Just made transform cache-resident")
+                        }
+                    };
+                    Some((*time_of_last_update_to_this_frame, value))
                 },
             )
             .flatten()
