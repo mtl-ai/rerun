@@ -1,0 +1,33 @@
+[package]
+name = "render_to_video"
+version = "0.36.0-alpha.1+dev"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# The viewer is used strictly as a library: `App` + the public helpers listed in
+# `NOTES.md`. Nothing in `crates/` is patched to make this build, which is the
+# whole point of this crate — see `NOTES.md`.
+re_viewer = { workspace = true, features = ["map_view"] }
+
+# Live ingestion for `--listen`: the same gRPC server the normal viewer runs.
+re_grpc_server = { workspace = true }
+
+re_build_info = { workspace = true }
+
+# The offscreen harness. A test-support crate, but a published, public one, and
+# the only public seam that can read back the *composited* egui surface.
+egui_kittest = { workspace = true }
+
+anyhow.workspace = true
+clap.workspace = true
+crossbeam.workspace = true
+ffmpeg-sidecar.workspace = true
+mimalloc.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
+[build-dependencies]
+re_build_tools.workspace = true
