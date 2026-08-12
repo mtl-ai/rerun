@@ -75,13 +75,12 @@ fn run_transparency_snapshot_test(name: &str, log: impl Fn(&mut TestContext)) {
     let mut harness = test_context
         .setup_kittest_for_rendering_3d(size)
         .with_options(
-            re_ui::testing::default_snapshot_options_for_3d(size)
+            default_options
+                .clone()
                 // Transparency rendering on MacOS diverges significantly from the other platforms.
                 // (not just on CI but also locally)
                 .threshold(OsThreshold::new(default_options.threshold).macos(2.5))
-                .failed_pixel_count_threshold(
-                    OsThreshold::new(default_options.failed_pixel_count_threshold).macos(150),
-                ),
+                .max_failed_pixels(OsThreshold::new(default_options.max_failed_pixels).macos(150)),
         )
         .build_ui(|ui| {
             test_context.run_with_single_view(ui, view_id);

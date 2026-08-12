@@ -8,7 +8,7 @@
 
 use arrow::array::{
     Array as _, FixedSizeListArray, Float32Array, Float64Array, Int64Array, ListArray, StringArray,
-    StructArray, UInt8Array,
+    StructArray, UInt8Array, UInt64Array,
 };
 use hdf5_pure::{
     AttrValue, CharacterSet, CompoundTypeBuilder, Datatype, FileBuilder, StringPadding,
@@ -329,9 +329,20 @@ fn all_scalar_file_has_no_timeline() {
 // Row windowing
 // ---------------------------------------------------------------------------
 
+/// The default chunk shape must track `OptimizationProfile::OBJECT_STORE`, so
+/// emitted chunks are already the shape the chunk store compacts toward.
+/// If you change one, change the other.
+#[test]
+fn default_chunk_shape_tracks_object_store_profile() {
+    let profile = re_chunk_store::OptimizationProfile::OBJECT_STORE;
+    let config = Hdf5Config::default();
+    assert_eq!(config.chunk_max_bytes, profile.chunk_max_bytes);
+    assert_eq!(config.chunk_max_rows, profile.chunk_max_rows);
+}
+
 #[test]
 fn large_dataset_is_row_windowed() {
-    const NUM_ROWS: usize = 2500; // 1024 + 1024 + 452
+    const NUM_ROWS: usize = 70_000; // 65_536 + 4_464
 
     #[expect(clippy::cast_precision_loss)]
     let values: Vec<f64> = (0..NUM_ROWS).map(|i| i as f64).collect();
@@ -340,15 +351,15 @@ fn large_dataset_is_row_windowed() {
     });
 
     let chunks = load_chunks(&path, &Hdf5Config::default());
-    assert_eq!(chunks.len(), 3);
+    assert_eq!(chunks.len(), 2);
     assert_eq!(
         chunks.iter().map(Chunk::num_rows).collect_vec(),
-        vec![1024, 1024, 452]
+        vec![65_536, 4_464]
     );
 
     // Distinct chunk ids, same entity, contiguous aligned time windows — every
     // window inheriting the file-wide buffer's sortedness.
-    assert_eq!(chunks.iter().map(Chunk::id).unique().count(), 3);
+    assert_eq!(chunks.iter().map(Chunk::id).unique().count(), 2);
     let all_times: Vec<i64> = chunks
         .iter()
         .flat_map(|chunk| {
@@ -364,6 +375,45 @@ fn large_dataset_is_row_windowed() {
 }
 
 #[test]
+fn vlen_strings_are_row_windowed() {
+    // Variable-length strings stream window by window like any other dtype
+    // (hdf5-pure resolves only each window's heap references), so a dataset
+    // longer than the row cap splits into row-capped chunks with continuous
+    // values.
+    const NUM_ROWS: usize = 70_000; // 65_536 + 4_464
+
+    let values: Vec<String> = (0..NUM_ROWS).map(|i| format!("s{i}")).collect();
+    let (_dir, path) = write_h5(move |b| {
+        let refs: Vec<&str> = values.iter().map(String::as_str).collect();
+        b.create_dataset("labels").with_vlen_strings(&refs);
+    });
+
+    let chunks = load_chunks(&path, &Hdf5Config::default());
+    assert_eq!(
+        chunks.iter().map(Chunk::num_rows).collect_vec(),
+        vec![65_536, 4_464]
+    );
+
+    let all: Vec<String> = chunks
+        .iter()
+        .flat_map(|chunk| {
+            let array = chunk.components().get_array("labels".into()).unwrap();
+            let strings = array
+                .values()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            strings
+                .iter()
+                .map(|value| value.unwrap().to_owned())
+                .collect_vec()
+        })
+        .collect();
+    let expected: Vec<String> = (0..NUM_ROWS).map(|i| format!("s{i}")).collect();
+    assert_eq!(all, expected);
+}
+
+#[test]
 fn small_dataset_is_a_single_chunk() {
     let (_dir, path) = write_h5(|b| {
         b.create_dataset("value").with_f64_data(&[1.0, 2.0]);
@@ -372,6 +422,134 @@ fn small_dataset_is_a_single_chunk() {
     let chunks = load_chunks(&path, &Hdf5Config::default());
     assert_eq!(chunks.len(), 1);
     assert_eq!(chunks[0].num_rows(), 2);
+}
+
+#[test]
+fn wide_rows_are_windowed_by_bytes() {
+    // 200 rows of 16384 f64 = 128 KiB per row; the 2 MiB chunk byte target
+    // caps a window at 16 rows, well below the row cap.
+    const NUM_ROWS: usize = 200;
+    const K: usize = 16384;
+    #[expect(clippy::cast_precision_loss)]
+    let values: Vec<f64> = (0..NUM_ROWS * K).map(|i| i as f64).collect();
+    let (_dir, path) = write_h5(move |b| {
+        b.create_dataset("wide")
+            .with_f64_data(&values)
+            .with_shape(&[NUM_ROWS as u64, K as u64]);
+    });
+
+    let chunks = load_chunks(&path, &Hdf5Config::default());
+    let mut expected_rows = vec![16; 12];
+    expected_rows.push(8);
+    assert_eq!(
+        chunks.iter().map(Chunk::num_rows).collect_vec(),
+        expected_rows
+    );
+
+    // The second window's first value continues exactly where the first ended.
+    let wide = chunks[1].components().get_array("wide".into()).unwrap();
+    let window = wide
+        .values()
+        .as_any()
+        .downcast_ref::<FixedSizeListArray>()
+        .unwrap();
+    let inner = window
+        .values()
+        .as_any()
+        .downcast_ref::<Float64Array>()
+        .unwrap();
+    #[expect(clippy::cast_precision_loss)]
+    let expected = (16 * K) as f64;
+    assert_eq!(inner.value(0), expected);
+}
+
+#[test]
+fn chunked_storage_windows_correctly() {
+    // Rows of 512 f64 = 4 KiB → 512-row emit windows (2 MiB target), while the
+    // deflated *storage* chunks hold 100 rows — deliberately misaligned so emit
+    // windows straddle storage-chunk boundaries: values must stay continuous.
+    const NUM_ROWS: usize = 1200;
+    const K: usize = 512;
+    #[expect(clippy::cast_precision_loss)]
+    let values: Vec<f64> = (0..NUM_ROWS * K).map(|i| i as f64).collect();
+    let (_dir, path) = write_h5(move |b| {
+        b.create_dataset("value")
+            .with_f64_data(&values)
+            .with_shape(&[NUM_ROWS as u64, K as u64])
+            .with_chunks(&[100, K as u64])
+            .with_deflate(4);
+    });
+
+    let chunks = load_chunks(&path, &Hdf5Config::default());
+    assert_eq!(
+        chunks.iter().map(Chunk::num_rows).collect_vec(),
+        vec![512, 512, 176]
+    );
+
+    let all: Vec<f64> = chunks
+        .iter()
+        .flat_map(|chunk| {
+            let list = chunk.components().get_array("value".into()).unwrap();
+            let window = list
+                .values()
+                .as_any()
+                .downcast_ref::<FixedSizeListArray>()
+                .unwrap();
+            let inner = window
+                .values()
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+            inner.values().to_vec()
+        })
+        .collect();
+    #[expect(clippy::cast_precision_loss)]
+    let expected: Vec<f64> = (0..NUM_ROWS * K).map(|i| i as f64).collect();
+    assert_eq!(all, expected);
+}
+
+#[test]
+fn inner_chunked_dataset_windows_correctly() {
+    // Storage chunks that split inner dimensions ([100, 256, 2] inside rows of
+    // [512, 4]): hdf5-pure assembles each emit window from the overlapping chunk
+    // grid (no whole-read fallback), so the dataset windows like any other —
+    // emit windows straddle storage-chunk boundaries in every dimension and the
+    // values must stay continuous.
+    const NUM_ROWS: usize = 1200;
+    const K: usize = 512 * 4;
+    #[expect(clippy::cast_precision_loss)]
+    let values: Vec<f64> = (0..NUM_ROWS * K).map(|i| i as f64).collect();
+    let (_dir, path) = write_h5(move |b| {
+        b.create_dataset("t3")
+            .with_f64_data(&values)
+            .with_shape(&[NUM_ROWS as u64, 512, 4])
+            .with_chunks(&[100, 256, 2])
+            .with_deflate(4);
+    });
+
+    // Rows of 2048 f64 = 16 KiB → 128-row emit windows (2 MiB target).
+    let chunks = load_chunks(&path, &Hdf5Config::default());
+    assert_eq!(
+        chunks.iter().map(Chunk::num_rows).collect_vec(),
+        std::iter::chain(std::iter::repeat_n(128, 9), [48]).collect_vec()
+    );
+
+    let all: Vec<f64> = chunks
+        .iter()
+        .flat_map(|chunk| {
+            let list = chunk.components().get_array("t3".into()).unwrap();
+            let blobs = list.values().as_any().downcast_ref::<ListArray>().unwrap();
+            let inner = blobs
+                .values()
+                .as_any()
+                .downcast_ref::<Float64Array>()
+                .unwrap();
+            inner.values().to_vec()
+        })
+        .collect();
+    #[expect(clippy::cast_precision_loss)]
+    let expected: Vec<f64> = (0..NUM_ROWS * K).map(|i| i as f64).collect();
+    assert_eq!(all, expected);
 }
 
 // ---------------------------------------------------------------------------
@@ -628,6 +806,35 @@ fn attributes_become_static_components() {
         .downcast_ref::<StringArray>()
         .unwrap();
     assert_eq!(unit_values.value(0), "m");
+}
+
+/// An unsigned integer array reads back as `U64Array`, so it must stay mapped
+/// to `UInt64` — reinterpreting it as `i64` would corrupt anything above
+/// `i64::MAX`.
+#[test]
+fn unsigned_array_attribute_keeps_its_width() {
+    let big = u64::MAX - 1;
+    let (_dir, path) = write_h5(|b| {
+        b.set_attr("ids", AttrValue::U64Array(vec![1, big]));
+    });
+
+    let chunks = load_chunks(&path, &Hdf5Config::default());
+    let props = find_chunk(&chunks, "/__hdf5_properties");
+    let ids = props.components().get_array("ids".into()).unwrap();
+
+    let list = ids
+        .values()
+        .as_any()
+        .downcast_ref::<FixedSizeListArray>()
+        .unwrap();
+    assert_eq!(list.value_length(), 2);
+
+    let values = list
+        .values()
+        .as_any()
+        .downcast_ref::<UInt64Array>()
+        .unwrap();
+    assert_eq!(values.values(), &[1, big]);
 }
 
 #[test]
@@ -900,7 +1107,7 @@ fn validate_layout_index_errors() {
 /// Reads a committed h5py-written fixture — every other test round-trips
 /// through `hdf5-pure`'s own writer, which would hide writer-symmetric parser
 /// bugs and never exercises libhdf5 idiosyncrasies (v1 symbol-table groups,
-/// string padding, attribute encodings).
+/// string padding, attribute encodings, the h5py compression filters).
 #[test]
 fn reads_h5py_written_file() {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/assets/h5py_compat.h5");
@@ -920,6 +1127,21 @@ fn reads_h5py_written_file() {
         .downcast_ref::<FixedSizeListArray>()
         .unwrap();
     assert_eq!(qpos_values.value_length(), 3);
+
+    let f32_values = |name: &'static str| {
+        data.components()
+            .get_array(name.into())
+            .unwrap()
+            .values()
+            .as_any()
+            .downcast_ref::<Float32Array>()
+            .unwrap()
+            .values()
+            .to_vec()
+    };
+    // `qvel` is gzip-compressed, `qacc` lzf-compressed.
+    assert_eq!(f32_values("qvel"), &[0.0, 1.0, 2.0, 3.0]);
+    assert_eq!(f32_values("qacc"), &[0.0, 10.0, 20.0, 30.0]);
 
     let props = find_chunk(&chunks, "/__hdf5_properties");
     let version = props.components().get_array("version".into()).unwrap();

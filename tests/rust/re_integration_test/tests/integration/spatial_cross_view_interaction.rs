@@ -7,7 +7,7 @@ use re_viewer::external::re_sdk_types::{
     archetypes::{CoordinateFrame, Image, Pinhole, Points3D, Transform3D},
     blueprint::archetypes::EyeControls3D,
     components::Position3D,
-    datatypes::ColorModel,
+    encodings::ColorModel,
 };
 use re_viewer::external::re_view_spatial;
 use re_viewer::external::re_viewer_context::{RecommendedView, ViewClass as _};
@@ -27,6 +27,7 @@ pub async fn test_spatial_cross_view_interaction_named_transforms() {
 fn run_test(use_named_transforms: bool) {
     let mut harness = viewer_test_utils::viewer_harness(&HarnessOptions {
         window_size: Some(egui::vec2(1000.0, 600.0)),
+        snapshot_test_options: re_ui::testing::TestOptions::Rendering3D,
         ..Default::default()
     });
     harness.init_recording();

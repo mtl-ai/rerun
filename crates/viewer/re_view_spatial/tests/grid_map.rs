@@ -5,7 +5,7 @@ use re_sdk_types::{
     blueprint::archetypes::{EyeControls3D, LineGrid3D, SpatialInformation},
     blueprint::components::{Enabled, GridSpacing},
     components::{Colormap, ImageFormat, Position3D, RotationAxisAngle},
-    datatypes::{ChannelDatatype, ColorModel},
+    encodings::{ChannelDatatype, ColorModel},
 };
 use re_test_context::TestContext;
 use re_test_viewport::TestContextExt as _;
@@ -121,6 +121,12 @@ fn test_grid_map_rviz_map_colormap() {
 #[test]
 fn test_grid_map_rviz_costmap_colormap() {
     run_grid_map_colormap_snapshot("grid_map_rviz_costmap", Colormap::RvizCostmap);
+}
+
+/// Creates a snapshot that renders a strip with all the possible [`Colormap::Costmap`] values.
+#[test]
+fn test_grid_map_costmap_colormap() {
+    run_grid_map_colormap_snapshot("grid_map_costmap", Colormap::Costmap);
 }
 
 fn run_grid_map_colormap_snapshot(name: &str, colormap: Colormap) {

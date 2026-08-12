@@ -119,7 +119,7 @@ fn setup_scene(test_context: &mut TestContext) {
                 &archetypes::Image::from_elements(
                     &[255u8, 0, 0],
                     [1, 1],
-                    re_sdk_types::datatypes::ColorModel::RGB,
+                    re_sdk_types::encodings::ColorModel::RGB,
                 ),
             )
             .with_archetype_auto_row(
@@ -131,9 +131,9 @@ fn setup_scene(test_context: &mut TestContext) {
         builder
             .with_archetype_auto_row(
                 TimePoint::STATIC,
-                &archetypes::DepthImage::try_from(re_sdk_types::datatypes::TensorData::new(
+                &archetypes::DepthImage::try_from(re_sdk_types::encodings::TensorData::new(
                     vec![1u64, 1u64],
-                    re_sdk_types::datatypes::TensorBuffer::U16(vec![1u16].into()),
+                    re_sdk_types::encodings::TensorBuffer::U16(vec![1u16].into()),
                 ))
                 .expect("Failed to create depth image from tensor data"),
             )
@@ -177,7 +177,9 @@ fn snapshot_visualizer_errors(
         .iter()
         .map(|(visualizer_type, error)| {
             let error = match error {
-                re_viewer_context::VisualizerTypeReport::OverallError(err) => err.summary.clone(),
+                re_viewer_context::VisualizerTypeReport::OverallError(err) => {
+                    err.diagnostic.summary.clone()
+                }
                 re_viewer_context::VisualizerTypeReport::PerInstructionReport(errors) => errors
                     .iter()
                     .flat_map(|(instr_id, reports)| {
@@ -185,7 +187,10 @@ fn snapshot_visualizer_errors(
                             .lookup_result_by_visualizer_instruction(*instr_id)
                             .expect("visualizer instruction should resolve to a query result");
                         reports.iter().map(|report| {
-                            format!("{:?}: {}", data_result.entity_path, report.summary)
+                            format!(
+                                "{:?}: {}",
+                                data_result.entity_path, report.diagnostic.summary
+                            )
                         })
                     })
                     .collect::<Vec<_>>()

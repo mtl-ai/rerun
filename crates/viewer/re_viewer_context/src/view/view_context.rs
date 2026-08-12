@@ -52,7 +52,7 @@ impl<'a> ViewContext<'a> {
         &'a self,
         data_result: &'a DataResult,
         query: LatestAtQuery,
-        instruction_id: VisualizerInstructionId,
+        instruction_id: impl Into<Option<VisualizerInstructionId>>,
     ) -> QueryContext<'a> {
         QueryContext {
             view_ctx: self,
@@ -63,18 +63,18 @@ impl<'a> ViewContext<'a> {
         }
     }
 
-    #[inline]
-    pub fn query_context_without_visualizer(
-        &'a self,
-        data_result: &'a DataResult,
-        query: LatestAtQuery,
-    ) -> QueryContext<'a> {
-        QueryContext {
-            view_ctx: self,
-            target_entity_path: &data_result.entity_path,
-            instruction_id: None,
-            archetype_name: None,
-            query,
+    /// The same context, but addressing a different view.
+    ///
+    /// The returned context has an empty [`Self::query_result`], so it is only good for reading
+    /// and writing that view's blueprint properties.
+    pub fn with_view_id(&self, view_id: ViewId) -> Self {
+        static EMPTY_QUERY_RESULT: std::sync::LazyLock<DataQueryResult> =
+            std::sync::LazyLock::new(DataQueryResult::default);
+
+        Self {
+            view_id,
+            query_result: &EMPTY_QUERY_RESULT,
+            ..*self
         }
     }
 

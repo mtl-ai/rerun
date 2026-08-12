@@ -210,6 +210,8 @@ class ChunkInternal:
         timelines: dict[str, Any],
         components: dict[ComponentDescriptor, Any],
     ) -> ChunkInternal: ...
+    @staticmethod
+    def from_property(name: str, components: dict[ComponentDescriptor, Any]) -> ChunkInternal: ...
     def format(self, *, width: int, redact: bool, trim_metadata_keys: bool) -> str: ...
     def apply_lenses(self, lenses: list[LensInternal]) -> list[ChunkInternal]: ...
     def apply_selector(self, source: str, selector: SelectorInternal) -> ChunkInternal: ...
@@ -609,9 +611,12 @@ def binary_stream(recording: PyRecordingStream | None = None) -> PyBinarySinkSto
 
 class GrpcSink:
     """
-    Used in [`rerun.RecordingStream.set_sinks`][].
+    Connect to an existing Rerun gRPC server and stream the recording to it.
 
-    Connect the recording stream to a remote Rerun Viewer on the given URL.
+    This is a gRPC client: it connects to a server but does not host one.
+    Use [`rerun.GrpcServerSink`][] to host a server that SDKs and Viewers can connect to.
+
+    Used in [`rerun.RecordingStream.set_sinks`][].
     """
 
     def __init__(self, url: str | None = None) -> None:
@@ -629,6 +634,33 @@ class GrpcSink:
             The default is `rerun+http://127.0.0.1:9876/proxy`.
 
         """
+
+class GrpcServerSink:
+    """
+    Host a Rerun gRPC server and stream the recording to connected clients.
+
+    This is a gRPC server: SDKs and Viewers connect to it.
+    Use [`rerun.GrpcSink`][] to connect as a client to an existing server.
+    Replacing the recording's sinks or dropping the recording shuts down the server.
+
+    Used in [`rerun.RecordingStream.set_sinks`][].
+    """
+
+    def __init__(
+        self,
+        # Binding all interfaces is the intended default; see `rerun.server.Server`.
+        bind_ip: str = "0.0.0.0",  # noqa: S104
+        port: int = 9876,
+        *,
+        server_memory_limit: str = "1GiB",
+        newest_first: bool = False,
+        cors_allow_origin: list[str] | None = None,
+    ) -> None:
+        """Create a hosted gRPC server sink."""
+
+    @property
+    def uri(self) -> str:
+        """URI that a Rerun Viewer can use to connect to this server."""
 
 class FileSink:
     """
@@ -732,7 +764,12 @@ def serve_grpc(
     Returns the URI of the server so you can connect the viewer to it.
     """
 
-def serve_web_viewer(web_port: int | None = None, open_browser: bool = True, connect_to: str | None = None) -> None:
+def serve_web_viewer(
+    web_port: int | None = None,
+    open_browser: bool = True,
+    connect_to: str | None = None,
+    assets_archive_path: str | None = None,
+) -> None:
     """
     Serve a web-viewer over HTTP.
 
@@ -747,6 +784,7 @@ def serve_web(
     default_blueprint: PyMemorySinkStorage | None = None,
     recording: PyRecordingStream | None = None,
     cors_allow_origin: list[str] = ...,  # type: ignore[assignment]
+    assets_archive_path: str | None = None,
 ) -> None:
     """Serve a web-viewer AND host a gRPC server."""
 
@@ -909,7 +947,7 @@ def get_app_url() -> str:
     whether [`start_web_viewer_server()`] was called.
     """
 
-def start_web_viewer_server(port: int) -> None:
+def start_web_viewer_server(port: int, assets_archive_path: str | None = None) -> None:
     """Start a web server to host the run web-assets."""
 
 def escape_entity_path_part(part: str) -> str:
@@ -1257,7 +1295,7 @@ class CatalogClientInternal:
 
     # ---
 
-    def version_info(self) -> tuple[str, str | None, str | None]: ...
+    def version_info(self) -> tuple[str, str | None, str | None, list[str]]: ...
     def rtt_seconds(self, num_pings: int) -> float: ...
     def bandwidth_bytes_per_sec(self, num_bytes: int, rtt_seconds: float) -> float | None: ...
     def datasets(self, include_hidden: bool) -> list[DatasetEntryInternal]: ...
@@ -1554,6 +1592,94 @@ class RrdReaderInternal:
     @property
     def path(self) -> Path: ...
 
+class _McapSchemaInfoInternal:
+    """Schema metadata returned by `McapReader.info()`, excluding the schema payload."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def name(self) -> str: ...
+    @property
+    def encoding(self) -> str: ...
+    @property
+    def data_size_bytes(self) -> int: ...
+
+class _McapChannelInfoInternal:
+    """Channel metadata and message statistics returned by `McapReader.info()`."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def topic(self) -> str: ...
+    @property
+    def message_encoding(self) -> str: ...
+    @property
+    def metadata(self) -> dict[str, str]: ...
+    @property
+    def schema(self) -> _McapSchemaInfoInternal | None: ...
+    @property
+    def message_count(self) -> int | None: ...
+    @property
+    def frequency_hz(self) -> tuple[float, float] | None: ...
+
+class _McapCompressionInfoInternal:
+    """Aggregate chunk sizes for one MCAP compression codec."""
+
+    @property
+    def codec(self) -> str: ...
+    @property
+    def chunk_count(self) -> int: ...
+    @property
+    def compressed_size_bytes(self) -> int: ...
+    @property
+    def uncompressed_size_bytes(self) -> int: ...
+
+class _McapChunkInfoInternal:
+    """Aggregate information about the indexed chunks in an MCAP file."""
+
+    @property
+    def count(self) -> int: ...
+    @property
+    def max_uncompressed_size_bytes(self) -> int | None: ...
+    @property
+    def max_compressed_size_bytes(self) -> int | None: ...
+    @property
+    def has_overlapping_time_ranges(self) -> bool: ...
+
+class _McapInfoInternal:
+    """Header and summary information returned by `McapReader.info()`."""
+
+    @property
+    def profile(self) -> str: ...
+    @property
+    def library(self) -> str: ...
+    @property
+    def message_count(self) -> int | None: ...
+    @property
+    def message_start_time_ns(self) -> int | None: ...
+    @property
+    def message_end_time_ns(self) -> int | None: ...
+    @property
+    def duration_ns(self) -> int | None: ...
+    @property
+    def schema_count(self) -> int: ...
+    @property
+    def channel_count(self) -> int: ...
+    @property
+    def attachment_count(self) -> int: ...
+    @property
+    def metadata_count(self) -> int: ...
+    @property
+    def statistics_present(self) -> bool: ...
+    @property
+    def summary_source(self) -> Literal["embedded", "reconstructed"]: ...
+    @property
+    def chunks(self) -> _McapChunkInfoInternal: ...
+    @property
+    def compression(self) -> list[_McapCompressionInfoInternal]: ...
+    @property
+    def channels(self) -> list[_McapChannelInfoInternal]: ...
+
 class McapReaderInternal:
     """Internal implementation. Use McapReader from rerun.experimental instead."""
 
@@ -1576,6 +1702,7 @@ class McapReaderInternal:
         end_time_ns: int | None = None,
     ) -> LazyChunkStreamInternal: ...
     def time_bounds(self) -> tuple[int, int]: ...
+    def info(self) -> _McapInfoInternal: ...
     @property
     def path(self) -> Path: ...
     @staticmethod
@@ -1632,9 +1759,9 @@ class Hdf5ReaderInternal:
 class ParquetReaderInternal:
     """Internal implementation. Use ParquetReader from rerun.experimental instead."""
 
-    def __init__(
+    def __init__(self, path: str) -> None: ...
+    def stream(
         self,
-        path: str,
         entity_path_prefix: str | None = None,
         column_grouping: str = "prefix",
         delimiter: str = "_",
@@ -1642,8 +1769,7 @@ class ParquetReaderInternal:
         use_structs: bool = True,
         static_columns: list[str] | None = None,
         index_columns: list[tuple[str, str, str | None]] | None = None,
-    ) -> None: ...
-    def stream(self) -> LazyChunkStreamInternal: ...
+    ) -> LazyChunkStreamInternal: ...
     @property
     def path(self) -> Path: ...
 
@@ -1835,6 +1961,33 @@ class _QueryMetrics:
 
     segment_admission_limit: int
     """Maximum concurrently admitted segments configured for this query."""
+
+    segment_admission_candidate_limit: int
+    """Cap recommended by the adaptive policy, whether or not it was applied."""
+
+    segment_admission_source: str
+    """Source of the effective admission cap."""
+
+    segment_admission_candidate_reason: str
+    """Reason the adaptive candidate was or was not eligible."""
+
+    segment_admission_adaptive_enabled: bool
+    """Whether adaptive segment admission was enabled."""
+
+    segment_admission_profile_segment_count: int
+    """Number of segments evaluated by the adaptive policy."""
+
+    segment_admission_profile_complete: bool
+    """Whether every segment had complete positive uncompressed-size metadata."""
+
+    segment_admission_p95_segment_bytes: int
+    """Nearest-rank p95 queried uncompressed bytes per segment."""
+
+    segment_admission_max_segment_bytes: int
+    """Largest queried uncompressed segment size."""
+
+    segment_admission_largest_window_bytes: int
+    """Sum of the largest candidate-window segment estimates."""
 
     max_segments_per_fetch_batch: int
     """Largest distinct-segment count in a planned transport batch."""

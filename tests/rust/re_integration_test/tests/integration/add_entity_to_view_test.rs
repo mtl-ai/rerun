@@ -13,6 +13,7 @@ use re_viewport_blueprint::ViewBlueprint;
 fn make_multi_view_test_harness<'a>() -> egui_kittest::Harness<'a, re_viewer::App> {
     let mut harness = viewer_test_utils::viewer_harness(&HarnessOptions {
         window_size: Some(egui::Vec2::new(1024.0, 1024.0)),
+        snapshot_test_options: re_ui::testing::TestOptions::Rendering3D,
         ..Default::default()
     });
     harness.init_recording();
@@ -65,9 +66,9 @@ fn make_multi_view_test_harness<'a>() -> egui_kittest::Harness<'a, re_viewer::Ap
         builder.with_archetype(
             RowId::new(),
             TimePoint::STATIC,
-            &re_sdk_types::archetypes::Tensor::new(re_sdk_types::datatypes::TensorData::new(
+            &re_sdk_types::archetypes::Tensor::new(re_sdk_types::encodings::TensorData::new(
                 vec![2, 4],
-                re_sdk_types::datatypes::TensorBuffer::U8(
+                re_sdk_types::encodings::TensorBuffer::U8(
                     vec![0, 100, 255, 22, 211, 64, 155, 40].into(),
                 ),
             )),

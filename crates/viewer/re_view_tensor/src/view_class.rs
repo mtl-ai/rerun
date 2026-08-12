@@ -9,7 +9,7 @@ use re_sdk_types::blueprint::components::ViewFit;
 use re_sdk_types::components::{
     Colormap, GammaCorrection, MagnificationFilter, TensorDimensionIndexSelection,
 };
-use re_sdk_types::datatypes::TensorData;
+use re_sdk_types::encodings::TensorData;
 use re_sdk_types::{View as _, ViewClassIdentifier};
 use re_ui::{Help, UiExt as _, list_item};
 use re_view::view_property_ui;
@@ -216,7 +216,7 @@ Set the displayed dimensions in a selection panel.",
         state: &mut dyn ViewState,
         query: &ViewQuery<'_>,
         system_output: re_viewer_context::SystemExecutionOutput,
-    ) -> Result<(), ViewSystemExecutionError> {
+    ) -> Result<re_viewer_context::ViewClassUiOutput, ViewSystemExecutionError> {
         re_tracing::profile_function!();
 
         let tokens = ui.tokens();
@@ -268,7 +268,7 @@ Set the displayed dimensions in a selection panel.",
                 .send_system(SystemCommand::set_selection(Item::View(query.view_id)));
         }
 
-        Ok(())
+        Ok(Default::default())
     }
 }
 

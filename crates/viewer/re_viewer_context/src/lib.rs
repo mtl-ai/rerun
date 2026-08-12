@@ -15,7 +15,6 @@ mod active_store_context;
 mod annotations;
 mod app_context;
 mod app_options;
-mod async_runtime_handle;
 mod blueprint_helpers;
 mod blueprint_id;
 mod cache;
@@ -64,7 +63,6 @@ pub use self::annotations::{
 };
 pub use self::app_context::{AppContext, AuthContext};
 pub use self::app_options::{AppOptions, ExperimentalAppOptions, VideoOptions};
-pub use self::async_runtime_handle::{AsyncRuntimeError, AsyncRuntimeHandle, WasmNotSend};
 pub use self::blueprint_helpers::{
     AppBlueprintCtx, BlueprintContext, blueprint_timeline, blueprint_timepoint_for_writes,
 };
@@ -140,14 +138,15 @@ pub use self::view::{
     PerSystemEntities, PreviewState, RecommendedMappings, RecommendedView, RecommendedVisualizers,
     SingleRequiredComponentConstraint, SystemExecutionOutput, ViewClass, ViewClassExt,
     ViewClassLayoutPriority, ViewClassPlaceholder, ViewClassRegistry, ViewClassRegistryError,
-    ViewContext, ViewContextCollection, ViewContextSystem, ViewContextSystemOncePerFrameResult,
-    ViewEntityHighlight, ViewHighlights, ViewOutlineMasks, ViewQuery, ViewSpawnHeuristics,
-    ViewState, ViewStateExt, ViewStates, ViewSystemExecutionError, ViewSystemIdentifier,
-    ViewSystemRegistrator, ViewSystemState, VisualizabilityConstraints, VisualizerCollection,
+    ViewClassUiOutput, ViewContext, ViewContextCollection, ViewContextSystem,
+    ViewContextSystemOncePerFrameResult, ViewEntityHighlight, ViewHighlights, ViewOutlineMasks,
+    ViewQuery, ViewSpawnHeuristics, ViewState, ViewStateExt, ViewStates, ViewSystemExecutionError,
+    ViewSystemIdentifier, ViewSystemRegistrator, ViewSystemState, ViewerDiagnostic,
+    ViewerReportSeverity, VisualizabilityConstraints, VisualizerCollection,
     VisualizerComponentMappings, VisualizerComponentSource, VisualizerExecutionOutput,
     VisualizerInstruction, VisualizerInstructionReport, VisualizerInstructionsPerType,
-    VisualizerQueryInfo, VisualizerReportContext, VisualizerReportSeverity, VisualizerSystem,
-    VisualizerTypeReport, VisualizerViewReport, VisualizersSectionOutput, VisualizersSectionUi,
+    VisualizerQueryInfo, VisualizerReportContext, VisualizerSystem, VisualizerTypeReport,
+    VisualizerViewReport, VisualizersSectionOutput, VisualizersSectionUi,
 };
 pub use self::viewer_context::ViewerContext;
 pub use self::visitor_flow_control::VisitorControlFlow; // Historical reasons

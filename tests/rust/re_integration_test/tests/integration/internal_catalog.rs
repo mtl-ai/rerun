@@ -9,7 +9,7 @@ use std::time::Duration;
 use egui_kittest::SnapshotResults;
 use egui_kittest::kittest::Queryable as _;
 use re_integration_test::HarnessExt as _;
-use re_log_types::{EntityPath, TimelineName};
+use re_log_types::{EntityPath, EntryName, TimelineName};
 use re_sdk::RecordingStreamBuilder;
 use re_sdk::blueprint::{Blueprint, Spatial2DView};
 use re_sdk_types::archetypes::Points2D;
@@ -40,7 +40,6 @@ fn test_rrd() -> (tempfile::TempDir, PathBuf) {
     )
     .expect("failed to log points");
 
-    // TODO(RR-5030): We don't load the blueprint yet, which is why the snapshots differ.
     Blueprint::new(
         Spatial2DView::new("points")
             .with_origin("/")
@@ -57,6 +56,54 @@ fn test_rrd() -> (tempfile::TempDir, PathBuf) {
         .expect("failed to flush .rrd");
 
     (dir, path)
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn internal_catalog_revealed_by_catalog_api() {
+    const DATASET_NAME: &str = "catalog_api_dataset";
+
+    let mut harness = viewer_test_utils::viewer_harness(&Default::default());
+    harness.set_selection_panel_opened(false);
+    harness.set_time_panel_opened(false);
+
+    assert!(
+        harness
+            .recording_panel()
+            .root()
+            .query_by_label_contains("Viewer catalog")
+            .is_none()
+    );
+
+    let connection_registry = harness.state().connection_registry().clone();
+    let origin = connection_registry
+        .internal_origin()
+        .expect("internal catalog should be configured");
+    let mut client = connection_registry
+        .client(origin)
+        .await
+        .expect("failed to connect to internal catalog");
+    client
+        .create_dataset_entry(
+            EntryName::new(DATASET_NAME).expect("valid entry name"),
+            None,
+        )
+        .await
+        .expect("failed to create dataset");
+
+    viewer_test_utils::step_until(
+        "internal catalog revealed",
+        &mut harness,
+        |harness| {
+            let panel = harness.recording_panel();
+            let root = panel.root();
+            root.query_by_label_contains("Viewer catalog").is_some()
+                && root.query_by_label_contains(DATASET_NAME).is_some()
+        },
+        Duration::from_millis(100),
+        Duration::from_secs(5),
+    );
+
+    harness.snapshot("internal_catalog_revealed_by_catalog_api");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -115,7 +162,8 @@ async fn internal_catalog_load_rrd() {
             &mut harness,
             |harness| {
                 harness
-                    .query_by_label_contains(&loading_rrd_toast)
+                    .query_all_by_label_contains(&loading_rrd_toast)
+                    .next()
                     .is_none()
             },
             Duration::from_millis(100),

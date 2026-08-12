@@ -11,6 +11,7 @@ mod cylinders3d;
 mod depth_images;
 mod ellipses2d;
 mod ellipsoids;
+mod gaussian_splats3d;
 mod grid_map;
 mod images;
 mod lines2d;
@@ -55,7 +56,7 @@ pub struct LoadingIndicator {
 
 use ahash::HashMap;
 use re_entity_db::EntityPath;
-use re_sdk_types::datatypes::{KeypointId, KeypointPair};
+use re_sdk_types::encodings::{KeypointId, KeypointPair};
 use re_view::clamped_or_else;
 use re_viewer_context::{
     Annotations, IdentifiedViewSystem as _, QueryContext, SystemExecutionOutput,
@@ -112,6 +113,7 @@ pub fn register_3d_spatial_visualizers(
     system_registry.register_visualizer::<ellipses2d::Ellipses2DVisualizer>()?;
     system_registry.register_visualizer::<video::EncodedDepthImageVisualizer>()?;
     system_registry.register_visualizer::<video::EncodedImageVisualizer>()?;
+    system_registry.register_visualizer::<gaussian_splats3d::GaussianSplats3DVisualizer>()?;
     system_registry.register_visualizer::<grid_map::GridMapVisualizer>()?;
     system_registry.register_visualizer::<images::ImageVisualizer>()?;
     system_registry.register_visualizer::<lines2d::Lines2DVisualizer>()?;

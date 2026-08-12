@@ -464,7 +464,7 @@ impl Dataset {
 
     pub fn rrd_manifest(&self, segment_id: &SegmentId) -> Result<RawRrdManifest, Error> {
         let partition = self.segment(segment_id)?;
-        let application_id = "n/a"; // irrelevant, dropped immediately
+        let application_id = "none"; // irrelevant, dropped immediately
         let segment_store_id =
             StoreId::new(self.store_kind(), application_id, segment_id.to_string());
 
@@ -673,7 +673,11 @@ impl Dataset {
         on_duplicate: IfDuplicateBehavior,
         store_kind: StoreKind,
     ) -> Result<BTreeSet<SegmentId>, Error> {
-        re_log::info!("Loading {path:?}…");
+        if store_kind == StoreKind::Blueprint {
+            re_log::debug!("Loading {path:?}…");
+        } else {
+            re_log::info!("Loading {path:?}…");
+        }
 
         let layer_name = layer_name.unwrap_or_else(LayerName::base);
         let layer_info = Arc::new(LayerInfo {

@@ -10,6 +10,7 @@ use egui::{Frame, Id, Margin, OpenUrl, Panel, RichText, Ui};
 use egui_table::{CellInfo, HeaderCellInfo};
 use itertools::Itertools as _;
 use re_arrow_util::ArrowArrayDowncastRef as _;
+use re_async::AsyncRuntimeHandle;
 use re_format::{format_plural_s, format_uint};
 use re_log::error;
 use re_log_types::{EntryId, Timestamp};
@@ -18,13 +19,13 @@ use re_sorbet::{ColumnDescriptorRef, SorbetSchema};
 use re_ui::egui_ext::response_ext::ResponseExt as _;
 use re_ui::menu::menu_style;
 use re_ui::{UiExt as _, UiLayout, icons};
-use re_viewer_context::{AppContext, AsyncRuntimeHandle, SystemCommand, SystemCommandSender as _};
+use re_viewer_context::{AppContext, SystemCommand, SystemCommandSender as _};
 
 use crate::StreamingCacheTableProvider;
+use crate::cards_view::FlagChangeEvent;
 use crate::datafusion_adapter::{DataFusionAdapter, DataFusionQueryResult};
 use crate::display_record_batch::DisplayColumn;
 use crate::filters::{ColumnFilter, FilterState};
-use crate::grid_view::FlagChangeEvent;
 use crate::header_tooltip::column_header_tooltip_ui;
 use crate::preview_renderer::PreviewRecording;
 use crate::re_table::ReTable;
@@ -38,12 +39,12 @@ use crate::{DisplayRecordBatch, default_display_name_for_column};
 /// Minimum row height (in points) when segment preview views are shown.
 const SEGMENT_PREVIEW_SIZE: f32 = 200.0;
 
-/// Whether the table is shown as a traditional table or as a card-based grid.
+/// Whether the table is shown as a traditional table or as cards.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum TableViewMode {
     #[default]
     Table,
-    Grid,
+    Cards,
 }
 
 /// Output produced by [`DataFusionTableWidget::table_ui`].
@@ -54,7 +55,7 @@ struct TableUiOutput {
     /// Original Arrow field for the configured flag column.
     flag_column_field: Option<Field>,
 
-    /// Flag toggle changes from the grid view.
+    /// Flag toggle changes from the card layout.
     flag_changes: Vec<FlagChangeEvent>,
 }
 
@@ -202,9 +203,7 @@ impl<'a> DataFusionTableWidget<'a> {
     /// query results remain visible until a new query completes.
     async fn invalidate_streaming_cache(session_ctx: &SessionContext, table_ref: &TableReference) {
         if let Ok(provider) = session_ctx.table_provider(table_ref.clone()).await
-            && let Some(cache_provider) = provider
-                .as_any()
-                .downcast_ref::<StreamingCacheTableProvider>()
+            && let Some(cache_provider) = provider.downcast_ref::<StreamingCacheTableProvider>()
         {
             cache_provider.refresh();
         }
@@ -734,8 +733,8 @@ impl<'a> DataFusionTableWidget<'a> {
                 .preview_column(num_preview_views)
                 .show(ui);
             }
-            TableViewMode::Grid => {
-                flag_changes = crate::grid_view::grid_ui(
+            TableViewMode::Cards => {
+                flag_changes = crate::cards_view::cards_ui(
                     ctx,
                     ui,
                     &columns,
@@ -890,9 +889,9 @@ fn title_ui(
                                 );
                                 ui.icon_selectable_value(
                                     &icons::TABLE_GRID_VIEW,
-                                    "Grid view",
+                                    "Cards view",
                                     view_mode,
-                                    TableViewMode::Grid,
+                                    TableViewMode::Cards,
                                 );
                             });
                         }
@@ -971,7 +970,7 @@ pub fn bool_value_at(
 
 /// Resolve the recording for a row's segment URI, triggering async loading if needed.
 ///
-/// Shared between the table view's `cell_ui` and the grid view.
+/// Shared between the regular table and card layouts.
 pub fn resolve_recording_for_row<'a>(
     ctx: &'a AppContext<'a>,
     segment_preview_column: &str,
@@ -1038,7 +1037,7 @@ fn upsert_flag_changes(
     remote: re_uri::EntryUri,
     results: &crate::datafusion_adapter::DataFusionQueryResult,
     flag_column_field: &Field,
-    changes: &[crate::grid_view::FlagChangeEvent],
+    changes: &[crate::cards_view::FlagChangeEvent],
 ) {
     // Find the table index column (needed as merge-key for upsert).
     let Some(index_col_idx) = table_index_column_index(&results.original_schema) else {

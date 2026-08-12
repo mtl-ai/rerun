@@ -622,6 +622,12 @@ impl ::prost::Name for GetDatasetSchemaResponse {
 pub struct GetRrdManifestRequest {
     #[prost(message, optional, tag = "1")]
     pub segment_id: ::core::option::Option<super::super::common::v1alpha1::SegmentId>,
+    /// Asks the server to return direct URLs pointing at encoded
+    /// `rerun.log_msg.v1alpha1.RrdFooter` payloads instead of inlining manifests.
+    ///
+    /// It is not guaranteed that the server will honor this.
+    #[prost(bool, tag = "2")]
+    pub generate_direct_urls: bool,
 }
 impl ::prost::Name for GetRrdManifestRequest {
     const NAME: &'static str = "GetRrdManifestRequest";
@@ -633,10 +639,15 @@ impl ::prost::Name for GetRrdManifestRequest {
         "/rerun.cloud.v1alpha1.GetRrdManifestRequest".into()
     }
 }
+/// Exactly one of `rrd_manifest` and `manifest_key` is set per response.
 #[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
 pub struct GetRrdManifestResponse {
+    /// The manifest, inlined.
     #[prost(message, optional, tag = "1")]
     pub rrd_manifest: ::core::option::Option<super::super::log_msg::v1alpha1::RrdManifest>,
+    /// Points at an encoded `rerun.log_msg.v1alpha1.RrdFooter` payload for the client to fetch and decode.
+    #[prost(message, optional, tag = "2")]
+    pub manifest_key: ::core::option::Option<RrdManifestKey>,
 }
 impl ::prost::Name for GetRrdManifestResponse {
     const NAME: &'static str = "GetRrdManifestResponse";
@@ -1878,6 +1889,38 @@ impl ::prost::Name for RrdChunkLocation {
         "/rerun.cloud.v1alpha1.RrdChunkLocation".into()
     }
 }
+/// `RrdManifestKey` points at an encoded `rerun.log_msg.v1alpha1.RrdFooter` payload in the object store.
+#[derive(Clone, PartialEq, Eq, Hash, ::prost::Message)]
+pub struct RrdManifestKey {
+    /// The canonical location of the footer payload (e.g. s3://bucket/file).
+    #[prost(message, optional, tag = "1")]
+    pub location: ::core::option::Option<RrdChunkLocation>,
+    /// The segment layer whose manifest is stored in this footer.
+    #[prost(string, optional, tag = "2")]
+    pub layer: ::core::option::Option<::prost::alloc::string::String>,
+    /// ETag of the source object (the layer's RRD file) as observed at registration time.
+    ///
+    /// Clients should pass this as an `If-Match` precondition when fetching, so that a concurrent
+    /// re-registration results in a clean failure (HTTP 412) instead of decoding garbage from a
+    /// mismatched byte range.
+    ///
+    /// Optional: legacy registrations and stores that do not return an ETag leave this unset.
+    #[prost(string, optional, tag = "3")]
+    pub etag: ::core::option::Option<::prost::alloc::string::String>,
+    /// Presigned URL the client fetches the manifest's byte range from.
+    #[prost(string, optional, tag = "4")]
+    pub direct_url: ::core::option::Option<::prost::alloc::string::String>,
+}
+impl ::prost::Name for RrdManifestKey {
+    const NAME: &'static str = "RrdManifestKey";
+    const PACKAGE: &'static str = "rerun.cloud.v1alpha1";
+    fn full_name() -> ::prost::alloc::string::String {
+        "rerun.cloud.v1alpha1.RrdManifestKey".into()
+    }
+    fn type_url() -> ::prost::alloc::string::String {
+        "/rerun.cloud.v1alpha1.RrdManifestKey".into()
+    }
+}
 /// Error codes for application level errors
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]
@@ -2628,6 +2671,11 @@ pub mod rerun_cloud_service_client {
         /// When that happens, it is guaranteed that all parts have the same exact Sorbet schemas (and therefore
         /// identical Sorbet schema hashes too).
         /// That means it is always semantically valid to concatenate the data from these RRD manifests.
+        ///
+        /// If the client sets `generate_direct_urls`, the server may instead return keys pointing at
+        /// encoded `rerun.log_msg.v1alpha1.RrdFooter` payloads for the client to fetch and decode.
+        /// This is best-effort: the response may still inline the manifests: clients must handle both forms.
+        /// However, all the items in a stream will either send inline manifest or urls, uniformly.
         pub async fn get_rrd_manifest(
             &mut self,
             request: impl tonic::IntoRequest<super::GetRrdManifestRequest>,
@@ -3136,6 +3184,11 @@ pub mod rerun_cloud_service_server {
         /// When that happens, it is guaranteed that all parts have the same exact Sorbet schemas (and therefore
         /// identical Sorbet schema hashes too).
         /// That means it is always semantically valid to concatenate the data from these RRD manifests.
+        ///
+        /// If the client sets `generate_direct_urls`, the server may instead return keys pointing at
+        /// encoded `rerun.log_msg.v1alpha1.RrdFooter` payloads for the client to fetch and decode.
+        /// This is best-effort: the response may still inline the manifests: clients must handle both forms.
+        /// However, all the items in a stream will either send inline manifest or urls, uniformly.
         async fn get_rrd_manifest(
             &self,
             request: tonic::Request<super::GetRrdManifestRequest>,

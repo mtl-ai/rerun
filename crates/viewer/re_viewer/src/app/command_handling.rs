@@ -824,7 +824,7 @@ impl App {
                 use re_log_types::FileSource;
                 for file_path in open_file_dialog_native(self.main_thread_token) {
                     self.command_sender
-                        .send_system(SystemCommand::LoadDataSource(LogDataSource::FilePath {
+                        .send_system(SystemCommand::LoadDataSource(LogDataSource::File {
                             file_source: FileSource::FileDialog {
                                 recommended_store_id: None,
                                 force_store_info,
@@ -856,7 +856,7 @@ impl App {
                 use re_log_types::FileSource;
                 for file_path in open_file_dialog_native(self.main_thread_token) {
                     self.command_sender
-                        .send_system(SystemCommand::LoadDataSource(LogDataSource::FilePath {
+                        .send_system(SystemCommand::LoadDataSource(LogDataSource::File {
                             file_source: FileSource::FileDialog {
                                 recommended_store_id: Some(active_store_id.clone()),
                                 force_store_info,
@@ -1093,15 +1093,23 @@ impl App {
 
             #[cfg(target_arch = "wasm32")]
             UICommand::RestartWithWebGl => {
-                if crate::web_tools::set_url_parameter_and_refresh("renderer", "webgl").is_err() {
-                    re_log::error!("Failed to set URL parameter `renderer=webgl` & refresh page.");
+                if let Err(err) =
+                    re_web::browser::set_url_parameter_and_refresh("renderer", "webgl")
+                {
+                    re_log::error!(
+                        "Failed to set URL parameter `renderer=webgl` and refresh page: {err}"
+                    );
                 }
             }
 
             #[cfg(target_arch = "wasm32")]
             UICommand::RestartWithWebGpu => {
-                if crate::web_tools::set_url_parameter_and_refresh("renderer", "webgpu").is_err() {
-                    re_log::error!("Failed to set URL parameter `renderer=webgpu` & refresh page.");
+                if let Err(err) =
+                    re_web::browser::set_url_parameter_and_refresh("renderer", "webgpu")
+                {
+                    re_log::error!(
+                        "Failed to set URL parameter `renderer=webgpu` and refresh page: {err}"
+                    );
                 }
             }
 
@@ -1477,22 +1485,21 @@ impl App {
     }
 
     pub(crate) fn toggle_fullscreen(&self) {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let fullscreen = self
-                .egui_ctx
-                .input(|i| i.viewport().fullscreen.unwrap_or(false));
-            self.egui_ctx
-                .send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            if let Some(options) = &self.startup_options.fullscreen_options {
-                // Tell JS to toggle fullscreen.
-                if let Err(err) = options.on_toggle.call0() {
-                    re_log::error!("{}", crate::web_tools::string_from_js_value(err));
+        cfg_select! {
+            target_arch = "wasm32" => {
+                if let Some(options) = &self.startup_options.fullscreen_options {
+                    // Tell JS to toggle fullscreen.
+                    if let Err(err) = options.on_toggle.call0() {
+                        re_log::error!("{err}");
+                    }
                 }
+            }
+            _ => {
+                let fullscreen = self
+                    .egui_ctx
+                    .input(|i| i.viewport().fullscreen.unwrap_or(false));
+                self.egui_ctx
+                    .send_viewport_cmd(egui::ViewportCommand::Fullscreen(!fullscreen));
             }
         }
     }
@@ -1508,7 +1515,7 @@ impl App {
             // Ask JS if fullscreen is on or not.
             match options.get_state.call0() {
                 Ok(v) => return v.is_truthy(),
-                Err(err) => re_log::error_once!("{}", crate::web_tools::string_from_js_value(err)),
+                Err(err) => re_log::error_once!("{err}"),
             }
         }
 
@@ -1858,33 +1865,32 @@ fn save_entity_db(
     // It just sucks latency-wise.
     let messages = messages.collect::<Vec<_>>();
 
-    // Web
-    #[cfg(target_arch = "wasm32")]
-    {
-        wasm_bindgen_futures::spawn_local(async move {
-            if let Err(err) =
-                async_save_dialog(rrd_version, &file_name, &title, messages.into_iter()).await
-            {
-                re_log::error!("File saving failed: {err}");
+    cfg_select! {
+        target_arch = "wasm32" => {
+            // Web
+            re_async::spawn_local(async move {
+                if let Err(err) =
+                    async_save_dialog(rrd_version, &file_name, &title, messages.into_iter()).await
+                {
+                    re_log::error!("File saving failed: {err}");
+                }
+            });
+        }
+        _ => {
+            // Native
+            let path = {
+                re_tracing::profile_scope!("file_dialog");
+                rfd::FileDialog::new()
+                    .set_file_name(file_name)
+                    .set_title(title)
+                    .save_file()
+            };
+            if let Some(path) = path {
+                app.background_tasks.spawn_file_saver(move || {
+                    crate::saving::encode_to_file(rrd_version, &path, messages.into_iter())?;
+                    Ok(path)
+                })?;
             }
-        });
-    }
-
-    // Native
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let path = {
-            re_tracing::profile_scope!("file_dialog");
-            rfd::FileDialog::new()
-                .set_file_name(file_name)
-                .set_title(title)
-                .save_file()
-        };
-        if let Some(path) = path {
-            app.background_tasks.spawn_file_saver(move || {
-                crate::saving::encode_to_file(rrd_version, &path, messages.into_iter())?;
-                Ok(path)
-            })?;
         }
     }
 

@@ -19,7 +19,7 @@ fn log_test_image(
             RowId::new(),
             TimePoint::default(),
             &re_sdk_types::archetypes::Image::from_color_model_and_tensor(
-                re_sdk_types::datatypes::ColorModel::RGB,
+                re_sdk_types::encodings::ColorModel::RGB,
                 image,
             )
             .expect("Failed to create image"),
@@ -28,7 +28,10 @@ fn log_test_image(
 }
 
 fn make_multi_view_test_harness<'a>() -> egui_kittest::Harness<'a, re_viewer::App> {
-    let mut harness = viewer_test_utils::viewer_harness(&HarnessOptions::default());
+    let mut harness = viewer_test_utils::viewer_harness(&HarnessOptions {
+        snapshot_test_options: re_ui::testing::TestOptions::Rendering3D,
+        ..Default::default()
+    });
     harness.init_recording();
 
     // Log some data

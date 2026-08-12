@@ -119,6 +119,8 @@ impl PyHdf5ReaderInternal {
             entity_path_prefix: entity_path_prefix
                 .map(EntityPath::from)
                 .unwrap_or_else(|| Hdf5Config::default().entity_path_prefix),
+            // Chunk shape stays at the crate default (OptimizationProfile::OBJECT_STORE).
+            ..Hdf5Config::default()
         };
 
         // Per-stream structural validation: fail fast before spawning the worker.
@@ -156,6 +158,9 @@ impl PyHdf5ReaderInternal {
             re_hdf5::read_attributes(&self.path, path).map_err(|err| accessor_err_to_py(&err))?;
 
         let dict = PyDict::new(py);
+        // `AttrValue` is `#[non_exhaustive]`: leave an unlisted attribute type out of
+        // the dict, and warn once for the whole object.
+        let mut unsupported = Vec::new();
         for (name, value) in attrs {
             match value {
                 AttrValue::F64(value) => dict.set_item(name, value)?,
@@ -168,11 +173,23 @@ impl PyHdf5ReaderInternal {
                 }
                 AttrValue::F64Array(values) => dict.set_item(name, values)?,
                 AttrValue::I64Array(values) => dict.set_item(name, values)?,
+                AttrValue::U64Array(values) => dict.set_item(name, values)?,
                 AttrValue::StringArray(values)
                 | AttrValue::AsciiStringArray(values)
                 | AttrValue::VarLenAsciiArray(values) => dict.set_item(name, values)?,
+
+                _ => unsupported.push(format!("{name} ({})", value.type_name())),
             }
         }
+
+        if !unsupported.is_empty() {
+            re_log::warn_once!(
+                "Ignoring HDF5 attributes of {path:?} with unsupported types: {}\nFile path: {}",
+                unsupported.join(", "),
+                self.path.display(),
+            );
+        }
+
         Ok(dict)
     }
 

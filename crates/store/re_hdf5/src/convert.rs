@@ -107,6 +107,9 @@ impl std::fmt::Display for DatasetDtype {
 
 impl From<&DType> for DatasetDtype {
     fn from(dtype: &DType) -> Self {
+        // The listed types and the `_` arm both map to `Unsupported`, but keep them
+        // apart: only the listed ones are types we know about.
+        #[expect(clippy::match_same_arms)]
         match dtype {
             DType::I8 => Self::Int8,
             DType::I16 => Self::Int16,
@@ -120,34 +123,66 @@ impl From<&DType> for DatasetDtype {
             DType::F64 => Self::Float64,
             DType::String | DType::VariableLengthString => Self::String,
 
-            //TODO(ab): support more of these?
+            //TODO(ab): support compound, enum, array and object-reference types?
             DType::Compound(_)
             | DType::Enum(_)
             | DType::Array(..)
             | DType::ObjectReference
             | DType::Other(_) => Self::Unsupported,
+
+            // `DType` is `#[non_exhaustive]`. A variant added upstream lands here
+            // instead of breaking the build.
+            _ => Self::Unsupported,
         }
     }
 }
 
-/// Read a dataset into its length-`N` per-row value array (see module docs)
-/// and the matching `Field` (named after the dataset leaf).
+/// Open `desc`'s dataset for value reads.
 ///
-/// The single core builder used by both the standalone and the struct-packed
-/// emit paths.
-pub(crate) fn read_row_values(
+/// The returned handle is owned (no borrow of `file`) and carries its own chunk
+/// cache, so callers streaming a dataset window-by-window should keep it open
+/// across windows.
+pub(crate) fn open_dataset(
     file: &hdf5_pure::File,
     desc: &DatasetDesc,
+) -> Result<hdf5_pure::Dataset, Hdf5Error> {
+    file.dataset(&desc.path.as_hdf5())
+        .map_err(|source| Hdf5Error::read_dataset(&desc.path, source))
+}
+
+/// Estimated bytes of one row (inner elements × element size), for sizing
+/// row windows. Strings use a fixed per-element guess.
+//TODO(RR-5285): derive string estimates from the heap references' exact lengths
+// instead of the guess — long strings currently oversize windows proportionally.
+pub(crate) fn row_byte_estimate(desc: &DatasetDesc) -> usize {
+    let element_bytes = match desc.dtype {
+        DType::I8 | DType::U8 => 1,
+        DType::I16 | DType::U16 => 2,
+        DType::I32 | DType::U32 | DType::F32 => 4,
+        DType::I64 | DType::U64 | DType::F64 => 8,
+        // Strings and anything else: a guess is fine, this only sizes windows.
+        _ => 16,
+    };
+    #[expect(clippy::cast_possible_truncation)]
+    let elements_per_row = desc.shape[1..].iter().product::<u64>() as usize;
+    elements_per_row.max(1).saturating_mul(element_bytes)
+}
+
+/// Read the row window `[start_row, start_row + num_rows)` of a dataset into
+/// its per-row value array (see module docs) and the matching `Field` (named
+/// after the dataset leaf).
+///
+/// The single core builder used by both the standalone and the struct-packed
+/// emit paths. A 0-D dataset counts as one row (pass `(0, 1)`).
+pub(crate) fn read_row_values(
+    dataset: &hdf5_pure::Dataset,
+    desc: &DatasetDesc,
+    start_row: usize,
+    num_rows: usize,
 ) -> Result<(Field, ArrayRef), Hdf5Error> {
     re_tracing::profile_function!();
 
-    let dataset = file
-        .dataset(&desc.path.as_hdf5())
-        .map_err(|source| Hdf5Error::read_dataset(&desc.path, source))?;
-    let flat = read_flat_values(&dataset, &desc.dtype, &desc.path)?;
-
-    #[expect(clippy::cast_possible_truncation)]
-    let num_rows = desc.shape.first().copied().unwrap_or(1) as usize;
+    let flat = read_flat_values(dataset, desc, start_row, num_rows)?;
 
     let values: ArrayRef = match desc.shape.len() {
         // Each row is one scalar (a 0-D dataset yields a single row).
@@ -177,26 +212,40 @@ pub(crate) fn read_row_values(
     Ok((field, values))
 }
 
-/// Read a dataset's raw values into a flat (row-major) Arrow array.
+/// Read a dataset's raw values for a row window into a flat (row-major) Arrow array.
+///
+/// The windowed `read_*_rows` calls delegate to a whole read when the window
+/// covers every row, so a full-range window costs no more than one.
 fn read_flat_values(
     dataset: &hdf5_pure::Dataset,
-    dtype: &DType,
-    path: &H5Path,
+    desc: &DatasetDesc,
+    start_row: usize,
+    num_rows: usize,
 ) -> Result<ArrayRef, Hdf5Error> {
-    let read_err = |source| Hdf5Error::read_dataset(path, source);
-    Ok(match dtype {
-        DType::I8 => Arc::new(Int8Array::from(dataset.read_i8().map_err(read_err)?)),
-        DType::I16 => Arc::new(Int16Array::from(dataset.read_i16().map_err(read_err)?)),
-        DType::I32 => Arc::new(Int32Array::from(dataset.read_i32().map_err(read_err)?)),
-        DType::I64 => Arc::new(Int64Array::from(dataset.read_i64().map_err(read_err)?)),
-        DType::U8 => Arc::new(UInt8Array::from(dataset.read_u8().map_err(read_err)?)),
-        DType::U16 => Arc::new(UInt16Array::from(dataset.read_u16().map_err(read_err)?)),
-        DType::U32 => Arc::new(UInt32Array::from(dataset.read_u32().map_err(read_err)?)),
-        DType::U64 => Arc::new(UInt64Array::from(dataset.read_u64().map_err(read_err)?)),
-        DType::F32 => Arc::new(Float32Array::from(dataset.read_f32().map_err(read_err)?)),
-        DType::F64 => Arc::new(Float64Array::from(dataset.read_f64().map_err(read_err)?)),
+    let read_err = |source| Hdf5Error::read_dataset(&desc.path, source);
+    let (start, count) = (start_row as u64, num_rows as u64);
+
+    macro_rules! read {
+        ($rows_fn:ident, $array:ident) => {
+            Arc::new($array::from(
+                dataset.$rows_fn(start, count).map_err(read_err)?,
+            )) as ArrayRef
+        };
+    }
+
+    Ok(match &desc.dtype {
+        DType::I8 => read!(read_i8_rows, Int8Array),
+        DType::I16 => read!(read_i16_rows, Int16Array),
+        DType::I32 => read!(read_i32_rows, Int32Array),
+        DType::I64 => read!(read_i64_rows, Int64Array),
+        DType::U8 => read!(read_u8_rows, UInt8Array),
+        DType::U16 => read!(read_u16_rows, UInt16Array),
+        DType::U32 => read!(read_u32_rows, UInt32Array),
+        DType::U64 => read!(read_u64_rows, UInt64Array),
+        DType::F32 => read!(read_f32_rows, Float32Array),
+        DType::F64 => read!(read_f64_rows, Float64Array),
         DType::String | DType::VariableLengthString => {
-            Arc::new(StringArray::from(dataset.read_string().map_err(read_err)?))
+            read!(read_string_rows, StringArray)
         }
         unsupported => {
             // Planning filters unsupported dtypes out before any read.
@@ -207,15 +256,28 @@ fn read_flat_values(
     })
 }
 
-/// Standalone (non-struct) emit path: one component per dataset, one row per
-/// dataset row.
+/// Wrap a dataset's per-row values into its standalone component: one
+/// component per dataset, one row per dataset row.
+pub(crate) fn values_to_component(
+    name: &str,
+    field: Field,
+    values: ArrayRef,
+) -> Result<(ComponentDescriptor, ListArray), Hdf5Error> {
+    let list = wrap_one_per_row(field.with_name("item"), values)?;
+    Ok((partial_descriptor(name)?, list))
+}
+
+/// Read a whole (small) dataset as its standalone component; used for the 0-D
+/// static scalars.
 pub(crate) fn read_dataset_to_list(
     file: &hdf5_pure::File,
     desc: &DatasetDesc,
 ) -> Result<(ComponentDescriptor, ListArray), Hdf5Error> {
-    let (field, values) = read_row_values(file, desc)?;
-    let list = wrap_one_per_row(field.with_name("item"), values)?;
-    Ok((partial_descriptor(desc.name())?, list))
+    let dataset = open_dataset(file, desc)?;
+    #[expect(clippy::cast_possible_truncation)]
+    let num_rows = desc.shape.first().copied().unwrap_or(1) as usize;
+    let (field, values) = read_row_values(&dataset, desc, 0, num_rows)?;
+    values_to_component(desc.name(), field, values)
 }
 
 /// Struct emit path: assemble the per-dataset row values into one
@@ -307,11 +369,39 @@ pub(crate) fn read_index_to_ns(
     Ok(ScalarBuffer::from(values))
 }
 
+/// The attribute types [`attr_to_component`] maps to Arrow, in the same order.
+///
+/// Planning drops the rest, so an unmapped attribute never reaches conversion.
+/// `AttrValue` is `#[non_exhaustive]`, so a variant added upstream is unsupported
+/// until it is listed here and in [`attr_to_component`].
+pub(crate) fn supported_attr(value: &hdf5_pure::AttrValue) -> bool {
+    use hdf5_pure::AttrValue;
+
+    matches!(
+        value,
+        AttrValue::F64(_)
+            | AttrValue::I32(_)
+            | AttrValue::I64(_)
+            | AttrValue::U32(_)
+            | AttrValue::U64(_)
+            | AttrValue::String(_)
+            | AttrValue::AsciiString(_)
+            | AttrValue::F64Array(_)
+            | AttrValue::I64Array(_)
+            | AttrValue::U64Array(_)
+            | AttrValue::StringArray(_)
+            | AttrValue::AsciiStringArray(_)
+            | AttrValue::VarLenAsciiArray(_)
+    )
+}
+
 /// Map one HDF5 attribute to a single-row static component.
 ///
 /// Scalar variants become a one-scalar `List<primitive>` row; array variants a
 /// single row whose value is a `FixedSizeList<L>` — the same one-per-row rule
 /// as datasets.
+///
+/// Errors for an attribute type [`supported_attr`] rejects.
 pub(crate) fn attr_to_component(
     name: &str,
     value: &hdf5_pure::AttrValue,
@@ -333,11 +423,23 @@ pub(crate) fn attr_to_component(
         AttrValue::I64Array(values) => {
             one_row_fixed_size_list(Arc::new(Int64Array::from(values.clone())))?
         }
+        AttrValue::U64Array(values) => {
+            one_row_fixed_size_list(Arc::new(UInt64Array::from(values.clone())))?
+        }
         AttrValue::StringArray(values)
         | AttrValue::AsciiStringArray(values)
         | AttrValue::VarLenAsciiArray(values) => one_row_fixed_size_list(Arc::new(
             StringArray::from_iter_values(values.iter().map(String::as_str)),
         ))?,
+
+        // Planning drops what `supported_attr` rejects, so this arm means the two
+        // lists have drifted apart.
+        _ => {
+            return Err(Hdf5Error::UnsupportedAttributeType {
+                name: name.to_owned(),
+                type_name: value.type_name().to_owned(),
+            });
+        }
     };
 
     let item_field = Field::new("item", values.data_type().clone(), true);

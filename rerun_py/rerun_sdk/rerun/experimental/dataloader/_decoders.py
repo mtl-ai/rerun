@@ -12,7 +12,7 @@ import torch
 from PIL import Image
 from torchvision.transforms.functional import pil_to_tensor  # type: ignore[import-untyped]
 
-from rerun._tracing import with_tracing
+from rerun._tracing import set_current_span_attributes, with_tracing
 
 from ...components import VideoCodec
 from ..video import detect_gop_start, is_annex_b, length_prefixed_to_annex_b
@@ -232,24 +232,52 @@ class VideoFrameDecoder(ColumnDecoder):
         fps_estimate: float = 30.0,
         codec: str = "h264",
         max_decoder_sessions: int = 8,
+        thread_count: int = 1,
     ) -> None:
+        """
+        Construct a decoder for a compressed video column.
+
+        Parameters
+        ----------
+        keyframe_interval:
+            Fallback GOP length (in frames) used to estimate how far back the
+            prior keyframe sits when the stream has no explicit markers.
+        fps_estimate:
+            Fallback frame rate used to turn `keyframe_interval` into a time window.
+        codec:
+            Video codec of the encoded samples (e.g. `"h264"`).
+        max_decoder_sessions:
+            Upper bound on the number of live codec contexts kept in the LRU cache.
+        thread_count:
+            ffmpeg decode thread count. Usually 1 for low resolution, larger for
+            large resolutions; 1 is preferred over auto, so we do not propose auto.
+
+        """
         self.codec = codec
         # Cached: read per sample in the decode loop.
         self._video_codec = _to_video_codec(codec)
         self._keyframe_interval = keyframe_interval
         self._fps_estimate = fps_estimate
         self._max_decoder_sessions = max_decoder_sessions
+        # TODO(guillaume): expose `thread_count` as a user-facing parameter
+        # if some customers do want to decode large images.
+        self.thread_count = thread_count
 
         # LRU of live decode sessions, keyed by `(segment_id, keyframe sample)`.
         self._sessions: OrderedDict[tuple[str, bytes], _DecoderSession] = OrderedDict()
+        # Lifetime session-cache stats, surfaced as span attributes on every decode.
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def __repr__(self) -> str:
         return f"VideoFrameDecoder(codec={self.codec!r})"
 
     def __getstate__(self) -> dict[str, Any]:
-        """Drop the sessions: open codec contexts cannot be pickled."""
+        """Drop the sessions: open codec contexts cannot be pickled. Cache stats restart per process."""
         state = self.__dict__.copy()
         state["_sessions"] = OrderedDict()
+        state["_cache_hits"] = 0
+        state["_cache_misses"] = 0
         return state
 
     def prior_keyframe_path(self, field_path: str) -> str | None:
@@ -337,7 +365,22 @@ class VideoFrameDecoder(ColumnDecoder):
         session_key = (segment_id, samples[0])
         session = self._sessions.pop(session_key, None)
         if session is None or not _starts_with(samples, session.fed_samples):
+            # Either no session for this GOP, or the new window doesn't extend
+            # what the session already decoded (e.g. shuffled access).
+            self._cache_misses += 1
             session = _DecoderSession(self._create_context())
+        else:
+            self._cache_hits += 1
+
+        total = self._cache_hits + self._cache_misses
+        set_current_span_attributes({
+            "rerun.dataloader.video.session_cache_hits": self._cache_hits,
+            "rerun.dataloader.video.session_cache_misses": self._cache_misses,
+            "rerun.dataloader.video.session_cache_hit_rate": self._cache_hits / total,
+            "rerun.dataloader.video.session_cache_miss_rate": self._cache_misses / total,
+            "rerun.dataloader.video.window_samples": len(samples),
+            "rerun.dataloader.video.packets_fed": len(samples) - len(session.fed_samples),
+        })
 
         # The session stays popped while feeding, so a raising packet can't
         # leave a corrupt context behind.
@@ -350,12 +393,23 @@ class VideoFrameDecoder(ColumnDecoder):
         if session.frames_emitted == len(samples) and session.last_frame is not None:
             # Delay-free stream: the last emitted frame is the target; keep the context open.
             self._sessions[session_key] = session
+            evicted = 0
             while len(self._sessions) > self._max_decoder_sessions:
                 self._sessions.popitem(last=False)
+                evicted += 1
+            set_current_span_attributes({
+                "rerun.dataloader.video.session_kept": True,
+                "rerun.dataloader.video.sessions_evicted": evicted,
+                "rerun.dataloader.video.live_sessions": len(self._sessions),
+            })
             return self._frame_to_tensor(session.last_frame)
 
         # Delayed frames (B-frames or pipelining): flush. A flushed context
         # cannot be re-fed, so no session is kept.
+        set_current_span_attributes({
+            "rerun.dataloader.video.session_kept": False,
+            "rerun.dataloader.video.live_sessions": len(self._sessions),
+        })
         target_frame = session.last_frame
         for frame in session.context.decode(None):
             target_frame = frame
@@ -393,6 +447,8 @@ class VideoFrameDecoder(ColumnDecoder):
         """A fresh raw-packet CodecContext (no container)."""
         decoder_name = _CODEC_TO_DECODER.get(self.codec, self.codec)
         context = cast("av.VideoCodecContext", av.CodecContext.create(decoder_name, "r"))
+        if self.thread_count:
+            context.thread_count = self.thread_count
         if decoder_name == "libdav1d":
             # dav1d delays output for pipelining by default; the session fast
             # path needs one frame out per packet in.

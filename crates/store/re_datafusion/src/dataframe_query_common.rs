@@ -7,7 +7,6 @@ use arrow::array::{
     ArrayRef, DurationNanosecondArray, Int64Array, RecordBatch, TimestampMicrosecondArray,
     TimestampMillisecondArray, TimestampNanosecondArray, TimestampSecondArray, UInt32Array,
 };
-use arrow::compute::concat_batches;
 use arrow::datatypes::{DataType, Field, Int64Type, Schema, SchemaRef, TimeUnit};
 use arrow::record_batch::RecordBatchOptions;
 use async_trait::async_trait;
@@ -19,6 +18,7 @@ use datafusion::physical_plan::ExecutionPlan;
 use futures::StreamExt as _;
 use itertools::Itertools as _;
 use parking_lot::Mutex;
+use re_async::AsyncRuntimeHandle;
 use re_dataframe::external::re_chunk_store::ChunkStore;
 use re_dataframe::{Index, IndexValue, QueryExpression, SparseFillStrategy};
 use re_log_types::{EntityPath, EntryId};
@@ -40,7 +40,6 @@ use re_sorbet::{
     BatchType, ChunkColumnDescriptors, ColumnDescriptor, ColumnKind, ComponentColumnSelector,
 };
 use re_uri::Origin;
-use std::any::Any;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::str::FromStr as _;
@@ -81,18 +80,16 @@ pub(crate) fn force_grpc() -> bool {
 /// ceiling. On wasm `pipeline_budget` isn't compiled in and there's no env, so
 /// the width is a small fixed constant.
 fn query_dataset_fanout() -> usize {
-    /// gRPC-web requests overlap usefully even though wasm is single-threaded;
-    /// kept modest since there's no process-wide limiter to back it up.
-    #[cfg(target_arch = "wasm32")]
-    const WASM_QUERY_DATASET_FANOUT: usize = 8;
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        crate::pipeline_budget::query_dataset_max_concurrency()
-    }
-    #[cfg(target_arch = "wasm32")]
-    {
-        WASM_QUERY_DATASET_FANOUT
+    cfg_select! {
+        target_arch = "wasm32" => {
+            /// gRPC-web requests overlap usefully even though wasm is single-threaded;
+            /// kept modest since there's no process-wide limiter to back it up.
+            const WASM_QUERY_DATASET_FANOUT: usize = 8;
+            WASM_QUERY_DATASET_FANOUT
+        }
+        _ => {
+            crate::pipeline_budget::query_dataset_max_concurrency()
+        }
     }
 }
 
@@ -246,7 +243,17 @@ impl DataframeQueryTableProvider<ConnectionClient> {
         )
         .await?;
 
-        provider.analytics = connection.analytics.map(crate::ConnectionAnalytics::new);
+        if let Some(exporter) = connection.analytics {
+            let async_runtime = AsyncRuntimeHandle::from_current_tokio_runtime_or_wasmbindgen()
+                .map_err(|err| {
+                    ApiError::internal_with_source(
+                        None,
+                        err,
+                        "failed to capture the async runtime for query analytics",
+                    )
+                })?;
+            provider.analytics = Some(crate::ConnectionAnalytics::new(exporter, async_runtime));
+        }
 
         Ok(provider)
     }
@@ -427,10 +434,6 @@ impl<T: DataframeClientAPI> DataframeQueryTableProvider<T> {
 
 #[async_trait]
 impl<T: DataframeClientAPI> TableProvider for DataframeQueryTableProvider<T> {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-
     fn schema(&self) -> SchemaRef {
         Arc::clone(&self.schema)
     }
@@ -1005,12 +1008,13 @@ pub(crate) fn prepend_string_column_schema(schema: &Schema, column_name: &str) -
 ///
 /// Hashes the underlying string with DataFusion's `HashValue` so the result
 /// matches `RepartitionExec`'s hashing of the segment-id string column.
-pub(crate) fn segment_partition_hash(
-    segment_id: &SegmentId,
-    random_state: &ahash::RandomState,
-) -> u64 {
+pub(crate) fn segment_partition_hash(segment_id: &SegmentId) -> u64 {
     use datafusion::common::hash_utils::HashValue as _;
-    segment_id.as_str().hash_one(random_state)
+    use datafusion::physical_plan::repartition::REPARTITION_RANDOM_STATE;
+
+    segment_id
+        .as_str()
+        .hash_one(REPARTITION_RANDOM_STATE.random_state())
 }
 
 /// We need to create `num_partitions` of DataFusion partition stream outputs, each of
@@ -1298,8 +1302,18 @@ fn compute_unique_chunk_info_ids(
         return Ok(None);
     }
 
-    let schema = chunk_info_batches[0].schema();
-    let combined = concat_batches(&schema, &chunk_info_batches)?;
+    // Merge by column *name*, not by position: a `query_dataset` response schema is only
+    // pinned by name (that is what `QueryDatasetDataframe::COLUMN_*` extraction relies on),
+    // and the batches we get here come from several independent responses — one per fan-out
+    // branch, each free to carry a different column order and a different set of optional
+    // columns (`chunk_byte_offset`, `{timeline}:start`, …). A branch that selected nothing
+    // typically answers with the server's fallback empty batch, whose columns are neither
+    // ordered nor shaped like the populated branches'. Concatenating those positionally
+    // either fails outright (`It is not possible to concatenate arrays of different data
+    // types (Utf8, Boolean)`) or, worse, silently pairs up same-typed but unrelated columns.
+    let combined = re_arrow_util::concat_polymorphic_batches(&chunk_info_batches)
+        .map_err(|err| exec_datafusion_err!("merging chunk-info batches: {err}"))?;
+    let schema = combined.schema();
     drop(chunk_info_batches);
 
     let chunk_ids = QueryDatasetDataframe::COLUMN_CHUNK_ID

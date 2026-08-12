@@ -125,12 +125,12 @@ fn test_state_timeline_multi_instance_bootstrap() {
         global_time_axis.save_blueprint_component(
             ctx,
             &blueprint::archetypes::TimeAxis::descriptor_view_range(),
-            &blueprint::components::TimeRange(re_sdk_types::datatypes::TimeRange {
-                start: re_sdk_types::datatypes::TimeRangeBoundary::Absolute(
-                    re_sdk_types::datatypes::TimeInt(12),
+            &blueprint::components::TimeRange(re_sdk_types::encodings::TimeRange {
+                start: re_sdk_types::encodings::TimeRangeBoundary::Absolute(
+                    re_sdk_types::encodings::TimeInt(12),
                 ),
-                end: re_sdk_types::datatypes::TimeRangeBoundary::Absolute(
-                    re_sdk_types::datatypes::TimeInt(30),
+                end: re_sdk_types::encodings::TimeRangeBoundary::Absolute(
+                    re_sdk_types::encodings::TimeInt(30),
                 ),
             }),
         );
@@ -202,12 +202,12 @@ fn test_state_timeline_multi_instance_stable_lane_count() {
         global_time_axis.save_blueprint_component(
             ctx,
             &blueprint::archetypes::TimeAxis::descriptor_view_range(),
-            &blueprint::components::TimeRange(re_sdk_types::datatypes::TimeRange {
-                start: re_sdk_types::datatypes::TimeRangeBoundary::Absolute(
-                    re_sdk_types::datatypes::TimeInt(12),
+            &blueprint::components::TimeRange(re_sdk_types::encodings::TimeRange {
+                start: re_sdk_types::encodings::TimeRangeBoundary::Absolute(
+                    re_sdk_types::encodings::TimeInt(12),
                 ),
-                end: re_sdk_types::datatypes::TimeRangeBoundary::Absolute(
-                    re_sdk_types::datatypes::TimeInt(30),
+                end: re_sdk_types::encodings::TimeRangeBoundary::Absolute(
+                    re_sdk_types::encodings::TimeInt(30),
                 ),
             }),
         );
@@ -696,7 +696,7 @@ fn test_state_timeline_zoom() {
 
     let size = egui::vec2(800.0, 400.0);
     let mut harness = test_context
-        .setup_kittest_for_rendering_3d(size)
+        .setup_kittest_for_rendering_ui(size)
         .build_ui(|ui| {
             test_context.run_with_single_view(ui, view_id);
         });
@@ -757,7 +757,7 @@ fn test_state_timeline_pan_past_data() {
 
     let size = egui::vec2(800.0, 150.0);
     let mut harness = test_context
-        .setup_kittest_for_rendering_3d(size)
+        .setup_kittest_for_rendering_ui(size)
         .build_ui(|ui| {
             test_context.run_with_single_view(ui, view_id);
         });
@@ -818,7 +818,7 @@ fn test_state_timeline_pan_before_data() {
 
     let size = egui::vec2(800.0, 150.0);
     let mut harness = test_context
-        .setup_kittest_for_rendering_3d(size)
+        .setup_kittest_for_rendering_ui(size)
         .build_ui(|ui| {
             test_context.run_with_single_view(ui, view_id);
         });
@@ -1017,7 +1017,7 @@ fn test_state_timeline_link_to_global() {
 
     let size = egui::vec2(800.0, 150.0);
     let mut harness = test_context
-        .setup_kittest_for_rendering_3d(size)
+        .setup_kittest_for_rendering_ui(size)
         .build_ui(|ui| {
             test_context.run_with_single_view(ui, view_id);
         });
@@ -1050,10 +1050,10 @@ fn test_state_timeline_link_to_global() {
     assert!(
         matches!(
             global_range.start,
-            re_sdk_types::datatypes::TimeRangeBoundary::Absolute(_)
+            re_sdk_types::encodings::TimeRangeBoundary::Absolute(_)
         ) && matches!(
             global_range.end,
-            re_sdk_types::datatypes::TimeRangeBoundary::Absolute(_)
+            re_sdk_types::encodings::TimeRangeBoundary::Absolute(_)
         ),
         "linked pan should write an absolute range, got {global_range:?}"
     );

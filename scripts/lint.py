@@ -65,8 +65,12 @@ unspaced_em_dash = re.compile(r"[\w\)\*]—[\w\(\*]")
 sentence_en_dash = re.compile(r"[A-Za-z\"'\)]\s–\s[A-Za-z]")
 todo_owner = re.compile(r"TODO\(([^)]*)\)")
 malformed_todo = re.compile(r'TODO([^_"(]|$)')
+tokio_runtime_creation = re.compile(
+    r"(?:tokio::)?runtime::Builder::new_(?:current|multi)_thread|tokio::runtime::Runtime::new"
+)
 debug_formatted_error = re.compile(r"\{\w*err:#?\?\}")
 debug_tracing_error = re.compile(r"\?\w*err\b")
+debug_formatted_ui_label = re.compile(r"ui\.\w+\([^)]*\n?[^)]*:\?")
 quoted_string = re.compile(r'"([^"]*)"')
 deprecated_rerun_cloud = re.compile(r"\bRerun\s+Cloud\b", re.IGNORECASE)
 deprecated_rerun_base = re.compile(r"\bRerun\s+Base\b", re.IGNORECASE)
@@ -294,6 +298,16 @@ def lint_line(
     if malformed_todo.search(line):
         return "TODO:s should be written as `TODO(yourname): what to do`"
 
+    if file_extension == "rs" and is_in_oss_rerun_repo and tokio_runtime_creation.search(line):
+        return (
+            "Create Tokio runtimes only at audited process or thread ownership boundaries. "
+            "Library code should accept `re_async::AsyncRuntimeHandle`. Add a NOLINT with the ownership reason if this runtime is required."
+        )
+
+    if file_extension == "rs" and "SnapshotOptions::default(" in line:
+        # `clippy.toml` forbids `SnapshotOptions::new` instead - clippy cannot refer to trait methods.
+        return "Use `re_ui::testing::default_snapshot_options_for_ui/_3d` instead, so that snapshot tests get strict thresholds on CI"
+
     if debug_formatted_error.search(line) or debug_format_of_err.search(line):
         return "Format errors with re_error::format or using Display - NOT Debug formatting!"
 
@@ -474,6 +488,7 @@ def test_lint_line() -> None:
         "let Some(foo) = bar else { return; };",
         "{foo:?}",
         'ui.label("This is fine. Correct casing.")',
+        'ui.label(format!("Value: {value}"));',
         "rec",
         "anyhow::Result<()>",
         "The theme is great",
@@ -626,6 +641,7 @@ def test_lint_line() -> None:
         "rr_stream",
         "rec_stream",
         "Result<(), anyhow::Error>",
+        "let options = SnapshotOptions::default();",
         "The the problem with double words",
         "More than meets the eye...",
         're_log::trace!("Performing migrations...");',
@@ -704,6 +720,16 @@ def test_lint_line() -> None:
         for line in test.split("\n"):
             assert lint_line(line, prev_line) is not None, f'expected "{line}" to fail'
             prev_line = line
+
+    assert debug_formatted_ui_label.search('ui.label(format!("Value: {value:?}"));')
+    assert debug_formatted_ui_label.search('ui.label(format!(\n    "Value: {value:?}",\n));')
+    assert debug_formatted_ui_label.search('ui.error_label(format!("Value: {value:?}"));')
+    assert not debug_formatted_ui_label.search('ui.label(format!("Value: {value}"));')
+    assert not debug_formatted_ui_label.search('ui.error_label(format!("Value: {value}"));')
+
+    runtime_creation = "tokio::runtime::Runtime::new()"
+    assert lint_line(runtime_creation, None, is_in_oss_rerun_repo=True) is not None
+    assert lint_line(runtime_creation, None, is_in_oss_rerun_repo=False) is None
 
     # rST (reStructuredText) is not rendered by MkDocs/mkdocstrings.
     # Flagged inside Python docstrings and Rust `///` doc comments only.
@@ -1669,6 +1695,12 @@ def lint_file(filepath: str, args: Any) -> int:
             num_errors += 1
 
     if filepath.endswith(".rs"):
+        for match in debug_formatted_ui_label.finditer(source.content):
+            line_nr = _index_to_line_nr(source.content, match.start())
+            if not source.should_ignore(line_nr):
+                print(source.error("Use Display, not Debug formatting, in GUI labels", line_nr=line_nr))
+                num_errors += 1
+
         for match in tonic_result.finditer(source.content):
             line_nr = _index_to_line_nr(source.content, match.start())
             print(source.error("Prefer using tonic::Result<>", line_nr=line_nr))
@@ -1682,7 +1714,7 @@ def lint_file(filepath: str, args: Any) -> int:
                 print(source.error("Use `//` not `///` for comments in .proto files", line_nr=line_nr))
                 num_errors += 1
 
-    if filepath.endswith((".rs", ".fbs")):
+    if filepath.endswith(".rs"):
         errors, lines_out = lint_vertical_spacing(source.lines)
         for error in errors:
             print(source.error(error))
@@ -1801,13 +1833,14 @@ def lint_crate_docs() -> int:
 
     error_count = 0
     for cargo_toml in crates_dir.glob("**/Cargo.toml"):
-        crate = cargo_toml.parent
-        crate_name = crate.name
+        # The crate name is not always the directory name.
+        package_name = re.search(r'^name = "(.+)"$', cargo_toml.read_text("utf-8"), re.MULTILINE)
+        crate_name = package_name.group(1) if package_name else cargo_toml.parent.name
 
         listed_crates.pop(crate_name, None)
 
         if not re.search(r"\b" + crate_name + r"\b", architecture_md):
-            print(f"{architecture_md_file}: missing documentation for crate {crate.name}")
+            print(f"{architecture_md_file}: missing documentation for crate {crate_name}")
             error_count += 1
 
     for crate_name, line_nr in sorted(listed_crates.items(), key=lambda x: x[1]):
@@ -1918,6 +1951,7 @@ def main() -> None:
         rerun("crates/store/re_protos/src/v1alpha1"),  # auto-generated
         rerun("crates/viewer/re_ui/data/Inter-README.txt"),  # third-party font readme (Inter)
         rerun("crates/viewer/re_web_viewer_server/web_viewer/re_viewer.js"),  # auto-generated by wasm_bindgen
+        rerun("docs/content/_redirects.yaml"),  # only contains URLs, which are always lowercase
         rerun("docs/content/concepts/app-model.md"),  # this really needs custom letter casing
         rerun("docs/content/reference/cli.md"),  # auto-generated
         rerun("docs/snippets/all/tutorials/custom-application-id.cpp"),  # nuh-uh, I don't want rerun_example_ here
