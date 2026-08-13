@@ -106,8 +106,10 @@ class ViewerClient:
     def spawn(
         cls,
         *,
+        render: bool = False,
+        output: str | os.PathLike[str] | None = None,
         headless: bool = False,
-        port: int = 9876,
+        port: int | None = None,
         memory_limit: str = "75%",
         server_memory_limit: str = "1GiB",
         hide_welcome_screen: bool = False,
@@ -118,8 +120,24 @@ class ViewerClient:
         """
         Spawn a fresh viewer process and connect to it.
 
+        With `render=True` this spawns a headless *renderer* instead and returns a
+        [`RenderClient`][rerun.experimental.RenderClient]: every logged tick becomes a
+        frame of `output` rather than something drawn on screen. Only `port` and
+        `executable_path` carry over — for `fps`, `size`, `blueprint` and the rest, call
+        [`RenderClient.spawn`][rerun.experimental.RenderClient.spawn] directly.
+
         Parameters
         ----------
+        render:
+            Spawn a render-to-video process instead of a viewer, and return a
+            [`RenderClient`][rerun.experimental.RenderClient]. Requires `output`.
+
+            Mind the teardown difference: a renderer must be *awaited* rather than killed,
+            or its video is truncated. See
+            [`RenderClient.finish`][rerun.experimental.RenderClient.finish].
+        output:
+            Path of the `.mp4` to write. Required when `render=True`, and meaningless
+            otherwise.
         headless:
             Run the spawned viewer in headless mode (no OS window).
             The viewer still listens for gRPC connections, so the SDK can keep
@@ -131,7 +149,8 @@ class ViewerClient:
             container with no Vulkan adapter, the viewer panics on
             startup with "No graphics adapter was found".
         port:
-            The port to listen on.
+            The port to listen on. Defaults to `9876` for a viewer, and to a free port
+            chosen by the OS when `render=True`.
         memory_limit:
             An upper limit on how much memory the Rerun Viewer should use.
             When this limit is reached, Rerun will drop the oldest data.
@@ -170,6 +189,19 @@ class ViewerClient:
 
         """
         from rerun._spawn import _spawn_viewer
+
+        if render:
+            if output is None:
+                raise ValueError("`output` is required when `render=True`: the renderer needs a file to write.")
+            from ._render_client import RenderClient
+
+            # `port=None` reaches the renderer as "pick a free one", which is what you want
+            # for a render: unlike a viewer, there's nothing to reconnect to at a known port.
+            return RenderClient.spawn(output, port=port, executable_path=executable_path)
+        if output is not None:
+            raise ValueError("`output` only applies to `render=True`; a viewer has nothing to write to it.")
+
+        port = 9876 if port is None else port
 
         if detach_process is None:
             detach_process = not headless

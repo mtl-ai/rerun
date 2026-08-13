@@ -19,9 +19,16 @@ def add_exe_suffix(path: str) -> str:
     return path
 
 
-def main() -> int:
+def rerun_binary_path(*, verbose: bool = False) -> str:
+    """
+    Path of the bundled `rerun` binary this shim delegates to.
+
+    The path is returned whether or not it exists, so callers can produce their own
+    error message. `RERUN_CLI_PATH` overrides the lookup.
+    """
     if "RERUN_CLI_PATH" in os.environ:
-        print(f"Using overridden RERUN_CLI_PATH={os.environ['RERUN_CLI_PATH']}", file=sys.stderr)
+        if verbose:
+            print(f"Using overridden RERUN_CLI_PATH={os.environ['RERUN_CLI_PATH']}", file=sys.stderr)
         target_path = os.environ["RERUN_CLI_PATH"]
     elif sys.platform == "darwin":
         bundled = os.path.join(os.path.dirname(__file__), "Rerun.app", "Contents", "MacOS", "Rerun")
@@ -30,7 +37,11 @@ def main() -> int:
     else:
         target_path = os.path.join(os.path.dirname(__file__), "rerun")
 
-    target_path = add_exe_suffix(target_path)
+    return add_exe_suffix(target_path)
+
+
+def main() -> int:
+    target_path = rerun_binary_path(verbose=True)
 
     if not os.path.exists(target_path):
         print(f"Error: Could not find rerun binary at {target_path}", file=sys.stderr)
