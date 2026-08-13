@@ -106,7 +106,7 @@ impl<T: BlueprintContext> TimeBlueprintExt for T {
             TimePanelBlueprint::descriptor_follow_delay_ms().component,
         )?;
 
-        Some(*follow_delay_ms)
+        Some(**follow_delay_ms)
     }
 
     fn set_fps(&self, fps: f64) {
