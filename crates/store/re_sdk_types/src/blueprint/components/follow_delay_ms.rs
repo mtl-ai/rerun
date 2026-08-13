@@ -27,138 +27,49 @@ use ::re_types_core::{DeserializationError, DeserializationResult};
 /// ⚠️ **This type is _unstable_ and may change significantly in a way that the data won't be backwards compatible.**
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd, ::re_byte_size::SizeBytes)]
 #[repr(transparent)]
-pub struct FollowDelayMs(pub u64);
+pub struct FollowDelayMs(pub crate::encodings::UInt64);
 
-impl ::re_types_core::Component for FollowDelayMs {
+impl ::re_types_core::WrapperComponent for FollowDelayMs {
+    type Encoding = crate::encodings::UInt64;
+
     #[inline]
     fn name() -> ComponentType {
         "rerun.blueprint.components.FollowDelayMs".into()
+    }
+
+    #[inline]
+    fn into_inner(self) -> Self::Encoding {
+        self.0
     }
 }
 
 ::re_types_core::macros::impl_into_cow!(FollowDelayMs);
 
-impl ::re_types_core::Loggable for FollowDelayMs {
-    #[inline]
-    fn arrow_datatype() -> arrow::datatypes::DataType {
-        use arrow::datatypes::*;
-        DataType::UInt64
-    }
-
-    fn to_arrow_opt<'a>(
-        data: impl IntoIterator<Item = Option<impl Into<::std::borrow::Cow<'a, Self>>>>,
-    ) -> SerializationResult<arrow::array::ArrayRef>
-    where
-        Self: Clone + 'a,
-    {
-        #![allow(clippy::manual_is_variant_and)]
-        use ::re_types_core::{Loggable as _, ResultExt as _, arrow_helpers::as_array_ref};
-        use arrow::{array::*, buffer::*, datatypes::*};
-        Ok({
-            let (somes, data0): (Vec<_>, Vec<_>) = data
-                .into_iter()
-                .map(|datum| {
-                    let datum: Option<::std::borrow::Cow<'a, Self>> = datum.map(Into::into);
-                    let datum = datum.map(|datum| datum.into_owned().0);
-                    (datum.is_some(), datum)
-                })
-                .unzip();
-            let data0_validity: Option<arrow::buffer::NullBuffer> = {
-                let any_nones = somes.iter().any(|some| !*some);
-                any_nones.then(|| somes.into())
-            };
-            as_array_ref(PrimitiveArray::<UInt64Type>::new(
-                ScalarBuffer::from(
-                    data0
-                        .into_iter()
-                        .map(|v| v.unwrap_or_default())
-                        .collect::<Vec<_>>(),
-                ),
-                data0_validity,
-            ))
-        })
-    }
-
-    fn from_arrow_opt(
-        arrow_data: &dyn arrow::array::Array,
-    ) -> DeserializationResult<Vec<Option<Self>>>
-    where
-        Self: Sized,
-    {
-        use ::re_types_core::{Loggable as _, ResultExt as _, arrow_zip_validity::ZipValidity};
-        use arrow::{array::*, buffer::*, datatypes::*};
-        Ok(arrow_data
-            .as_any()
-            .downcast_ref::<UInt64Array>()
-            .ok_or_else(|| {
-                let expected = Self::arrow_datatype();
-                let actual = arrow_data.data_type().clone();
-                DeserializationError::datatype_mismatch(expected, actual)
-            })
-            .with_context("rerun.blueprint.components.FollowDelayMs#delay")?
-            .into_iter()
-            .map(|v| v.ok_or_else(DeserializationError::missing_data))
-            .map(|res| res.map(|v| Some(Self(v))))
-            .collect::<DeserializationResult<Vec<Option<_>>>>()
-            .with_context("rerun.blueprint.components.FollowDelayMs#delay")
-            .with_context("rerun.blueprint.components.FollowDelayMs")?)
-    }
-
-    #[inline]
-    fn from_arrow(arrow_data: &dyn arrow::array::Array) -> DeserializationResult<Vec<Self>>
-    where
-        Self: Sized,
-    {
-        use ::re_types_core::{Loggable as _, ResultExt as _, arrow_zip_validity::ZipValidity};
-        use arrow::{array::*, buffer::*, datatypes::*};
-        if let Some(nulls) = arrow_data.nulls()
-            && nulls.null_count() != 0
-        {
-            return Err(DeserializationError::missing_data());
-        }
-        Ok({
-            let slice = arrow_data
-                .as_any()
-                .downcast_ref::<UInt64Array>()
-                .ok_or_else(|| {
-                    let expected = DataType::UInt64;
-                    let actual = arrow_data.data_type().clone();
-                    DeserializationError::datatype_mismatch(expected, actual)
-                })
-                .with_context("rerun.blueprint.components.FollowDelayMs#delay")?
-                .values()
-                .as_ref();
-            { slice.iter().copied().map(Self).collect::<Vec<_>>() }
-        })
+impl<T: Into<crate::encodings::UInt64>> From<T> for FollowDelayMs {
+    fn from(v: T) -> Self {
+        Self(v.into())
     }
 }
 
-impl From<u64> for FollowDelayMs {
+impl std::borrow::Borrow<crate::encodings::UInt64> for FollowDelayMs {
     #[inline]
-    fn from(delay: u64) -> Self {
-        Self(delay)
-    }
-}
-
-impl From<FollowDelayMs> for u64 {
-    #[inline]
-    fn from(value: FollowDelayMs) -> Self {
-        value.0
+    fn borrow(&self) -> &crate::encodings::UInt64 {
+        &self.0
     }
 }
 
 impl std::ops::Deref for FollowDelayMs {
-    type Target = u64;
+    type Target = crate::encodings::UInt64;
 
     #[inline]
-    fn deref(&self) -> &u64 {
+    fn deref(&self) -> &crate::encodings::UInt64 {
         &self.0
     }
 }
 
 impl std::ops::DerefMut for FollowDelayMs {
     #[inline]
-    fn deref_mut(&mut self) -> &mut u64 {
+    fn deref_mut(&mut self) -> &mut crate::encodings::UInt64 {
         &mut self.0
     }
 }
