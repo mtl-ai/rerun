@@ -307,7 +307,6 @@ You can also define your own timelines, e.g. for sensor time or camera frame num
         }
     }
 
-
     #[expect(clippy::unused_self)]
     pub fn follow_delay_ui(
         &self,

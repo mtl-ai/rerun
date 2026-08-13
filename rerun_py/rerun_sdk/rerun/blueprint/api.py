@@ -530,6 +530,7 @@ class TimePanel(Panel):
 
         follow_delay_ms:
             Add delay to streams when playing in follow mode
+
         """
         super().__init__(blueprint_path="time_panel", expanded=expanded, state=state)
 
@@ -550,7 +551,7 @@ class TimePanel(Panel):
             fps=self.fps,
             loop_mode=self.loop_mode,
             time_selection=self.time_selection,
-            follow_delay_ms=self.follow_delay_ms
+            follow_delay_ms=self.follow_delay_ms,
         )
 
         stream.log(self.blueprint_path(), arch)  # type: ignore[attr-defined]

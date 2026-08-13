@@ -2,9 +2,9 @@ name: Build and Test Wheels (Self-Hosted)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch: # Allows manual execution from the GitHub Actions UI
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
         uses: prefix-dev/setup-pixi@v0.10.0
         with:
           pixi-version: v0.71.3
-          post-cleanup: true 
+          post-cleanup: true
           pixi-bin-path: ${{ github.workspace }}/.pixi-bin/pixi
 
       - name: Clean Previous Builds

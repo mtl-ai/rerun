@@ -236,8 +236,7 @@ impl Default for TimeControl {
             buffer_next_frame: false,
             was_buffering: false,
 
-            follow_delay_ms: 100, 
-
+            follow_delay_ms: 100,
         }
     }
 }
