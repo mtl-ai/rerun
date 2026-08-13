@@ -22,6 +22,7 @@ from ._query_metrics import (
     QueryMetrics as QueryMetrics,
     query_metrics as query_metrics,
 )
+from ._render_client import RenderClient as RenderClient
 from ._viewer_client import ViewerClient as ViewerClient
 
 # TODO(RR-5534): remove this deprecation shim one release after the chunk API move ships.
