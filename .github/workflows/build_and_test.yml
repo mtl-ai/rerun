@@ -28,16 +28,11 @@ jobs:
         # Ensures no stale artifacts from previous runner executions interfere
         run: rm -rf dist/ target/wheels/
 
-      - name: Build Web Target Components
+      - name: Build Rerun viewer CLI and python sdk wheel
         # 1. Provision the cross-compilation runtime for Pixi
         # 2. Run the full native + web macro task
         run: |
-          pixi run rerun-build-native-and-web-release
-
-      - name: Compile Wheel
-        # Compiles the Rust bindings locally and drops the wheel file into dist/
-        run: |
-          pixi run uvpy scripts/ci/build_and_upload_wheels.py --mode pr --dir dist
+          pixi run py-build-wheel
 
       - name: Run Cargo Tests (Rust Core)
         # Validates the native Rust crate logic before testing Python integrations
@@ -54,4 +49,3 @@ jobs:
         with:
           name: rerun-sdk-selfhosted-wheel
           path: dist/**/*.whl
-          retention-days: 5 # Automatically cleans up storage space on your repository
