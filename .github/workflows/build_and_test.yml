@@ -48,4 +48,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rerun-sdk-selfhosted-wheel
-          path: dist/**/*.whl
+          path: target/wheels/*.whl
