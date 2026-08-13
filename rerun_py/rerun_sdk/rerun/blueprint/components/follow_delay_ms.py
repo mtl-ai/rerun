@@ -5,16 +5,26 @@
 
 from __future__ import annotations
 
-from ... import encodings
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
+import numpy.typing as npt
+import pyarrow as pa
+from attrs import define, field
+
 from ..._baseclasses import (
+    BaseBatch,
     ComponentBatchMixin,
     ComponentMixin,
 )
+from ..._numpy_compatibility import asarray
 
-__all__ = ["FollowDelayMs", "FollowDelayMsBatch"]
+__all__ = ["FollowDelayMs", "FollowDelayMsArrayLike", "FollowDelayMsBatch", "FollowDelayMsLike"]
 
 
-class FollowDelayMs(encodings.UInt64, ComponentMixin):
+@define(init=False)
+class FollowDelayMs(ComponentMixin):
     """
     **Component**: Add delay in follow mode to allow proper buffering.
 
@@ -22,13 +32,44 @@ class FollowDelayMs(encodings.UInt64, ComponentMixin):
     """
 
     _BATCH_TYPE = None
-    # You can define your own __init__ function as a member of FollowDelayMsExt in follow_delay_ms_ext.py
 
-    # Note: there are no fields here because FollowDelayMs delegates to encodings.UInt64
+    def __init__(self: Any, delay: FollowDelayMsLike) -> None:
+        """Create a new instance of the FollowDelayMs component."""
+
+        # You can define your own __init__ function as a member of FollowDelayMsExt in follow_delay_ms_ext.py
+        self.__attrs_init__(delay=delay)
+
+    delay: int = field(converter=int)
+
+    def __array__(self, dtype: npt.DTypeLike = None, copy: bool | None = None) -> npt.NDArray[Any]:
+        # You can define your own __array__ function as a member of FollowDelayMsExt in follow_delay_ms_ext.py
+        return asarray(self.delay, dtype=dtype, copy=copy)
+
+    def __int__(self) -> int:
+        return int(self.delay)
+
+    def __hash__(self) -> int:
+        return hash(self.delay)
 
 
-class FollowDelayMsBatch(encodings.UInt64Batch, ComponentBatchMixin):
+if TYPE_CHECKING:
+    FollowDelayMsLike = FollowDelayMs | int
+    """A type alias for any FollowDelayMs-like object."""
+else:
+    FollowDelayMsLike = Any
+
+FollowDelayMsArrayLike = FollowDelayMs | Sequence[FollowDelayMsLike] | npt.ArrayLike
+"""A type alias for any FollowDelayMs-like array object."""
+
+
+class FollowDelayMsBatch(BaseBatch[FollowDelayMsArrayLike], ComponentBatchMixin):
+    _ARROW_DATATYPE = pa.uint64()
     _COMPONENT_TYPE: str = "rerun.blueprint.components.FollowDelayMs"
+
+    @staticmethod
+    def _native_to_pa_array(data: FollowDelayMsArrayLike, data_type: pa.DataType) -> pa.Array:
+        array = np.asarray(data, dtype=np.uint64).flatten()
+        return pa.array(array, type=data_type)
 
 
 # This is patched in late to avoid circular dependencies.
