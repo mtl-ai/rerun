@@ -24,6 +24,9 @@ jobs:
           post-cleanup: true
           pixi-bin-path: ${{ github.workspace }}/.pixi-bin/pixi
 
+      - name: Generate Core Serialization Mappings
+        run: pixi run codegen
+
       - name: Verify Configuration Manifest Formatting (TOML)
         run: pixi run toml-fmt-check
 
@@ -63,4 +66,3 @@ jobs:
         # Installs dependencies and validates the local Python package bindings
         run: |
           pixi run py-test
-
