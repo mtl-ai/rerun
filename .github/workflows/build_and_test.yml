@@ -24,6 +24,21 @@ jobs:
           post-cleanup: true
           pixi-bin-path: ${{ github.workspace }}/.pixi-bin/pixi
 
+      - name: Verify Configuration Manifest Formatting (TOML)
+        run: pixi run toml-fmt-check
+
+      - name: Verify Python Code Layout (Ruff)
+        run: pixi run py-fmt-check
+
+      - name: Verify Rust Workspace Code Layout (Cargo Fmt)
+        run: pixi run lint-rs-all
+
+      - name: Verify Code Generation Synchronization (Codegen)
+        run: pixi run lint-codegen
+
+      - name: Verify Custom Repository Formatting Conventions
+        run: pixi run lint-rerun
+
       - name: Clean Previous Builds
         # Ensures no stale artifacts from previous runner executions interfere
         run: rm -rf dist/ target/wheels/
@@ -40,10 +55,9 @@ jobs:
           name: rerun-sdk-selfhosted-wheel
           path: target/wheels/*.whl
 
-      #- name: Run Cargo Tests (Rust Core)
+      - name: Run Cargo Tests (Rust Core)
         # Validates the native Rust crate logic before testing Python integrations
-        #run: pixi run cargo test --workspace
-        #run: pixi run cargo nextest run --workspace --all-features
+        run: pixi run cargo nextest run --workspace --all-features
 
       - name: Run Pytest (Python Integrations)
         # Installs dependencies and validates the local Python package bindings
