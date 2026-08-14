@@ -24,6 +24,10 @@ jobs:
           post-cleanup: true
           pixi-bin-path: ${{ github.workspace }}/.pixi-bin/pixi
 
+      - name: Clean Previous Builds
+        # Ensures no stale artifacts from previous runner executions interfere
+        run: rm -rf dist/ target/wheels/
+
       - name: Generate Core Serialization Mappings
         run: pixi run codegen
 
@@ -34,17 +38,13 @@ jobs:
         run: pixi run py-fmt-check
 
       - name: Verify Rust Workspace Code Layout (Cargo Fmt)
-        run: pixi run lint-rs-all
+        run: pixi run lint-rs-files
 
       - name: Verify Code Generation Synchronization (Codegen)
         run: pixi run lint-codegen
 
       - name: Verify Custom Repository Formatting Conventions
         run: pixi run lint-rerun
-
-      - name: Clean Previous Builds
-        # Ensures no stale artifacts from previous runner executions interfere
-        run: rm -rf dist/ target/wheels/
 
       - name: Build Rerun viewer CLI and python sdk wheel
         # 1. Provision the cross-compilation runtime for Pixi
