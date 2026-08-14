@@ -19,6 +19,11 @@ namespace rerun::blueprint::archetypes {
                 Descriptor_playback_speed
             )
                 .value_or_throw();
+        archetype.follow_delay_ms =
+            ComponentBatch::empty<rerun::blueprint::components::FollowDelayMs>(
+                Descriptor_follow_delay_ms
+            )
+                .value_or_throw();
         archetype.fps = ComponentBatch::empty<rerun::blueprint::components::Fps>(Descriptor_fps)
                             .value_or_throw();
         archetype.play_state =
@@ -37,7 +42,7 @@ namespace rerun::blueprint::archetypes {
 
     Collection<ComponentColumn> TimePanelBlueprint::columns(const Collection<uint32_t>& lengths_) {
         std::vector<ComponentColumn> columns;
-        columns.reserve(7);
+        columns.reserve(8);
         if (state.has_value()) {
             columns.push_back(state.value().partitioned(lengths_).value_or_throw());
         }
@@ -46,6 +51,9 @@ namespace rerun::blueprint::archetypes {
         }
         if (playback_speed.has_value()) {
             columns.push_back(playback_speed.value().partitioned(lengths_).value_or_throw());
+        }
+        if (follow_delay_ms.has_value()) {
+            columns.push_back(follow_delay_ms.value().partitioned(lengths_).value_or_throw());
         }
         if (fps.has_value()) {
             columns.push_back(fps.value().partitioned(lengths_).value_or_throw());
@@ -72,6 +80,9 @@ namespace rerun::blueprint::archetypes {
         if (playback_speed.has_value()) {
             return columns(std::vector<uint32_t>(playback_speed.value().length(), 1));
         }
+        if (follow_delay_ms.has_value()) {
+            return columns(std::vector<uint32_t>(follow_delay_ms.value().length(), 1));
+        }
         if (fps.has_value()) {
             return columns(std::vector<uint32_t>(fps.value().length(), 1));
         }
@@ -96,7 +107,7 @@ namespace rerun {
         ) {
         using namespace blueprint::archetypes;
         std::vector<ComponentBatch> cells;
-        cells.reserve(7);
+        cells.reserve(8);
 
         if (archetype.state.has_value()) {
             cells.push_back(archetype.state.value());
@@ -106,6 +117,9 @@ namespace rerun {
         }
         if (archetype.playback_speed.has_value()) {
             cells.push_back(archetype.playback_speed.value());
+        }
+        if (archetype.follow_delay_ms.has_value()) {
+            cells.push_back(archetype.follow_delay_ms.value());
         }
         if (archetype.fps.has_value()) {
             cells.push_back(archetype.fps.value());
