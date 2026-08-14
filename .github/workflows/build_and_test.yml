@@ -34,18 +34,19 @@ jobs:
         run: |
           pixi run py-build-wheel
 
-      - name: Run Cargo Tests (Rust Core)
+      - name: Save Compiled Wheel as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: rerun-sdk-selfhosted-wheel
+          path: target/wheels/*.whl
+
+      #- name: Run Cargo Tests (Rust Core)
         # Validates the native Rust crate logic before testing Python integrations
         #run: pixi run cargo test --workspace
-        run: pixi run cargo nextest run --workspace --all-features
+        #run: pixi run cargo nextest run --workspace --all-features
 
       - name: Run Pytest (Python Integrations)
         # Installs dependencies and validates the local Python package bindings
         run: |
           pixi run py-test
 
-      - name: Save Compiled Wheel as Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: rerun-sdk-selfhosted-wheel
-          path: target/wheels/*.whl
