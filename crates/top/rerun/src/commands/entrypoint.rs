@@ -18,6 +18,8 @@ use crate::commands::AnalyticsCommands;
 use crate::commands::DownloadCommand;
 #[cfg(feature = "importers")]
 use crate::commands::McapCommands;
+#[cfg(feature = "native_viewer")]
+use crate::commands::RenderCommand;
 use crate::commands::RrdCommands;
 
 use super::cli_data_source::local_recordings_for_assets;
@@ -670,6 +672,17 @@ enum Command {
         endpoint: Option<url::Url>,
     },
 
+    /// Render a recording to a video file, without a window.
+    ///
+    /// Plays a file source (.rrd, .mcap, …) back at a fixed frame rate through an
+    /// offscreen viewer and encodes the frames to e.g. mp4 via the `ffmpeg` CLI
+    /// (which must be installed, just like for H.264 playback in the viewer).
+    /// With `--listen`, renders a live SDK stream tick-by-tick instead of a file.
+    ///
+    /// Example: `rerun render --size 1920x1080 --fps 30 -o out.mp4 recording.rrd`
+    #[cfg(feature = "native_viewer")]
+    Render(RenderCommand),
+
     /// Reset the memory of the Rerun Viewer.
     ///
     /// Only run this if you're having trouble with the Viewer,
@@ -812,6 +825,14 @@ where
             Command::ViewerMcp { endpoint } => {
                 tokio_runtime.block_on(re_viewer_mcp::serve(endpoint))
             }
+
+            #[cfg(feature = "native_viewer")]
+            Command::Render(cmd) => cmd.run(
+                main_thread_token,
+                build_info,
+                call_source.app_env(),
+                tokio_runtime.handle(),
+            ),
 
             #[cfg(feature = "native_viewer")]
             Command::Reset => re_viewer::reset_viewer_persistence(),
@@ -2095,6 +2116,9 @@ fn record_cli_command_analytics(args: &Args) {
         Some(Command::ViewerMcp { .. }) => ("viewer-mcp", None),
 
         Some(Command::Download(_)) => ("download", None),
+
+        #[cfg(feature = "native_viewer")]
+        Some(Command::Render(_)) => ("render", None),
 
         #[cfg(feature = "native_viewer")]
         Some(Command::Reset) => ("reset", None),

@@ -106,6 +106,13 @@ pub mod headless;
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::run_headless_app;
 
+#[cfg(not(target_arch = "wasm32"))]
+pub mod render_to_video;
+#[cfg(not(target_arch = "wasm32"))]
+pub use render_to_video::{
+    ProducerStatus, RenderVideoOptions, RenderVideoStats, run_render_app, run_render_listen_app,
+};
+
 // ----------------------------------------------------------------------------
 // When compiling for web:
 
