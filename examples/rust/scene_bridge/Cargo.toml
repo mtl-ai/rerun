@@ -1,0 +1,55 @@
+[package]
+name = "scene_bridge"
+version = "0.38.0-alpha.1+dev"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "Prototype bridge: serve MCAP and internal-format scenes to the Rerun web viewer on demand, without pre-conversion"
+
+[dependencies]
+re_async.workspace = true
+re_byte_size.workspace = true
+re_chunk.workspace = true
+re_chunk_store.workspace = true
+re_format.workspace = true
+re_grpc_server.workspace = true
+re_importer = { workspace = true, features = ["mcap"] }
+re_log = { workspace = true, features = ["setup"] }
+re_log_encoding = { workspace = true, features = ["decoder", "encoder"] }
+re_log_types.workspace = true
+re_mcap.workspace = true
+re_protos.workspace = true
+re_redap_client.workspace = true
+re_sdk_types = { workspace = true, features = ["ecolor", "glam"] }
+re_server.workspace = true
+re_span.workspace = true
+re_tuid.workspace = true
+re_types_core.workspace = true
+re_uri.workspace = true
+
+ahash.workspace = true
+anyhow = { workspace = true, features = ["std"] }
+arrow.workspace = true
+async-trait.workspace = true
+axum.workspace = true
+clap = { workspace = true, features = ["derive", "std"] }
+futures.workspace = true
+image = { workspace = true, features = ["jpeg", "png"] }
+itertools.workspace = true
+jiff.workspace = true
+mcap.workspace = true
+memmap2.workspace = true
+parking_lot.workspace = true
+parquet = { workspace = true, features = ["arrow", "snap", "zstd"] }
+percent-encoding.workspace = true
+rand = { workspace = true, features = ["std", "thread_rng"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "fs", "time"] }
+url.workspace = true
+walkdir.workspace = true
+xxhash-rust = { workspace = true, features = ["xxh3"] }
+
+[lints]
+workspace = true
