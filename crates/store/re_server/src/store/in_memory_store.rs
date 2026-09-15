@@ -222,6 +222,63 @@ impl InMemoryStore {
             .await
     }
 
+    /// Register an arbitrary [`re_log_encoding::ChunkProvider`] as a lazy segment of an existing dataset.
+    ///
+    /// This is the generic counterpart of [`Self::register_rrd_to_dataset`]: the provider serves the
+    /// segment's manifest (index) and materializes chunks on demand, so the backing source can be
+    /// anything (an RRD file, a remote object, a converter over a foreign format, …).
+    ///
+    /// The store slot is registered in the pool under `slot_id` if provided (which makes chunk keys
+    /// deterministic across server replicas), or under a fresh random id otherwise.
+    pub async fn register_provider_to_dataset(
+        &mut self,
+        dataset_id: EntryId,
+        segment_id: re_types_core::SegmentId,
+        layer_name: Option<re_types_core::LayerName>,
+        provider: std::sync::Arc<dyn re_log_encoding::ChunkProvider>,
+        storage_url: url::Url,
+        slot_id: Option<StoreSlotId>,
+        on_duplicate: re_protos::common::v1alpha1::ext::IfDuplicateBehavior,
+    ) -> Result<(), Error> {
+        use crate::store::{LayerInfo, ResolvedStore};
+
+        let dataset = self
+            .datasets
+            .get_mut(&dataset_id)
+            .ok_or(Error::EntryIdNotFound(dataset_id))?;
+
+        let resolved = ResolvedStore::Lazy(std::sync::Arc::new(re_chunk_store::LazyStore::new(
+            provider,
+        )));
+
+        let slot_id = match slot_id {
+            Some(slot_id) => {
+                self.store_pool.register_with_id(slot_id, &resolved);
+                slot_id
+            }
+            None => self.store_pool.register(&resolved),
+        };
+
+        let layer_info = std::sync::Arc::new(LayerInfo {
+            name: layer_name.unwrap_or_else(re_types_core::LayerName::base),
+        });
+
+        dataset
+            .add_source(
+                segment_id,
+                layer_info,
+                slot_id,
+                resolved,
+                storage_url,
+                on_duplicate,
+            )
+            .await?;
+
+        self.update_entries_table()?;
+
+        Ok(())
+    }
+
     /// Load a directory of RRDs.
     //TODO(ab): maybe we could be smart with .rbl and auto-setup a blueprint dataset?
     #[cfg(not(target_arch = "wasm32"))]

@@ -188,6 +188,41 @@ impl RerunCloudHandlerBuilder {
         Ok(self)
     }
 
+    /// Register a [`re_log_encoding::ChunkProvider`] as a lazily-loaded segment of the named dataset.
+    ///
+    /// The dataset is created on first use (with `dataset_id` if provided, so ids can be made
+    /// deterministic across replicas). See
+    /// [`InMemoryStore::register_provider_to_dataset`] for the details.
+    pub async fn with_chunk_provider_as_segment(
+        mut self,
+        dataset_name: re_protos::EntryName,
+        dataset_id: Option<re_log_types::EntryId>,
+        segment_id: re_types_core::SegmentId,
+        provider: std::sync::Arc<dyn re_log_encoding::ChunkProvider>,
+        storage_url: url::Url,
+        slot_id: Option<crate::store::StoreSlotId>,
+        on_duplicate: re_protos::common::v1alpha1::ext::IfDuplicateBehavior,
+    ) -> Result<Self, crate::store::Error> {
+        let dataset_id = match self.store.id_by_name(&dataset_name) {
+            Some(id) => *id,
+            None => self.store.create_dataset(dataset_name, dataset_id)?,
+        };
+
+        self.store
+            .register_provider_to_dataset(
+                dataset_id,
+                segment_id,
+                None,
+                provider,
+                storage_url,
+                slot_id,
+                on_duplicate,
+            )
+            .await?;
+
+        Ok(self)
+    }
+
     pub fn with_eager_chunk_store_config(
         mut self,
         config: re_chunk_store::ChunkStoreConfig,
