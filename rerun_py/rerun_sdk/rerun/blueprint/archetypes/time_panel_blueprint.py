@@ -38,6 +38,7 @@ class TimePanelBlueprint(Archetype):
         state: blueprint_components.PanelStateLike | None = None,
         timeline: encodings.Utf8Like | None = None,
         playback_speed: encodings.Float64Like | None = None,
+        follow_delay_ms: encodings.UInt64Like | None = None,
         fps: encodings.Float64Like | None = None,
         play_state: blueprint_components.PlayStateLike | None = None,
         loop_mode: blueprint_components.LoopModeLike | None = None,
@@ -54,6 +55,8 @@ class TimePanelBlueprint(Archetype):
             What timeline the panel is on.
         playback_speed:
             A time playback speed multiplier.
+        follow_delay_ms:
+            Follow delay ms. Only applicable for follow mode
         fps:
             Frames per second. Only applicable for sequence timelines.
         play_state:
@@ -75,6 +78,7 @@ class TimePanelBlueprint(Archetype):
                 state=state,
                 timeline=timeline,
                 playback_speed=playback_speed,
+                follow_delay_ms=follow_delay_ms,
                 fps=fps,
                 play_state=play_state,
                 loop_mode=loop_mode,
@@ -89,6 +93,7 @@ class TimePanelBlueprint(Archetype):
             state=None,
             timeline=None,
             playback_speed=None,
+            follow_delay_ms=None,
             fps=None,
             play_state=None,
             loop_mode=None,
@@ -110,6 +115,7 @@ class TimePanelBlueprint(Archetype):
         state: blueprint_components.PanelStateLike | None = None,
         timeline: encodings.Utf8Like | None = None,
         playback_speed: encodings.Float64Like | None = None,
+        follow_delay_ms: encodings.UInt64Like | None = None,
         fps: encodings.Float64Like | None = None,
         play_state: blueprint_components.PlayStateLike | None = None,
         loop_mode: blueprint_components.LoopModeLike | None = None,
@@ -128,6 +134,8 @@ class TimePanelBlueprint(Archetype):
             What timeline the panel is on.
         playback_speed:
             A time playback speed multiplier.
+        follow_delay_ms:
+            Follow delay ms. Only applicable for follow mode
         fps:
             Frames per second. Only applicable for sequence timelines.
         play_state:
@@ -149,6 +157,7 @@ class TimePanelBlueprint(Archetype):
                 "state": state,
                 "timeline": timeline,
                 "playback_speed": playback_speed,
+                "follow_delay_ms": follow_delay_ms,
                 "fps": fps,
                 "play_state": play_state,
                 "loop_mode": loop_mode,
@@ -191,6 +200,14 @@ class TimePanelBlueprint(Archetype):
             "TimePanelBlueprint:playback_speed",
             archetype=TimePanelBlueprint.NAME,
             component_type=blueprint_components.PlaybackSpeedBatch._COMPONENT_TYPE,
+        )
+
+    @staticmethod
+    def descriptor_follow_delay_ms() -> ComponentDescriptor:
+        return ComponentDescriptor(
+            "TimePanelBlueprint:follow_delay_ms",
+            archetype=TimePanelBlueprint.NAME,
+            component_type=blueprint_components.FollowDelayMsBatch._COMPONENT_TYPE,
         )
 
     @staticmethod
@@ -249,6 +266,15 @@ class TimePanelBlueprint(Archetype):
         converter=blueprint_components.PlaybackSpeedBatch._converter,  # type: ignore[misc]
     )
     # A time playback speed multiplier.
+    #
+    # (Docstring intentionally commented out to hide this field from the docs)
+
+    follow_delay_ms: blueprint_components.FollowDelayMsBatch | None = field(
+        metadata={"component": True},
+        default=None,
+        converter=blueprint_components.FollowDelayMsBatch._converter,  # type: ignore[misc]
+    )
+    # Follow delay ms. Only applicable for follow mode
     #
     # (Docstring intentionally commented out to hide this field from the docs)
 
