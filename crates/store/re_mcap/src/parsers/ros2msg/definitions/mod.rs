@@ -5,6 +5,7 @@
 //! ROS2 data into idiomatic Rust structs.
 
 pub mod builtin_interfaces;
+pub mod foxglove_msgs;
 pub mod geometry_msgs;
 pub mod sensor_msgs;
 pub mod std_msgs;
