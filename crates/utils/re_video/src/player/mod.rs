@@ -993,6 +993,16 @@ impl<T: Default> VideoPlayer<T> {
         self.last_requested
     }
 
+    /// Whether the decoder was caught up with the last requested frame, as of
+    /// the most recent [`Self::frame_at`] call.
+    ///
+    /// [`DecoderDelayState::UpToDate`] means the delivered output is exactly
+    /// the frame covering the requested time — anything else means the caller
+    /// got a stale/fallback frame while the decoder catches up.
+    pub fn decoder_delay_state(&self) -> DecoderDelayState {
+        self.decoder_delay_state
+    }
+
     /// Shift index tracking after a splice at `splice_start` that changed the
     /// sample deque size by `delta` (positive = grew, negative = shrank).
     ///

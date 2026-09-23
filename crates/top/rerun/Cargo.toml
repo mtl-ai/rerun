@@ -106,6 +106,8 @@ native_viewer = [
   "dep:re_viewer_mcp",
   "dep:url",
   "importers",
+  # `rerun render` encodes captured frames via the ffmpeg CLI:
+  "re_video/ffmpeg",
 ]
 
 ## Enable the in-memory Rerun data server.

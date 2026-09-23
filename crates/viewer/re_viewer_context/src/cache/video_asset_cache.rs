@@ -37,6 +37,31 @@ struct Entry {
 pub struct VideoAssetCache(HashMap<StoredBlobCacheKey, HashMap<Hash64, Entry>>);
 
 impl VideoAssetCache {
+    /// Whether every video player that was asked for a frame this frame
+    /// delivered exactly the frame that was requested of it.
+    ///
+    /// `false` means at least one active player handed out a stale fallback
+    /// texture while its async decoder catches up. See
+    /// [`re_renderer::video::Video::all_active_players_up_to_date`].
+    pub fn all_active_players_up_to_date(&self) -> bool {
+        #[expect(clippy::iter_over_hash_type)] // order-independent predicate
+        for per_key in self.0.values() {
+            #[expect(clippy::iter_over_hash_type)] // order-independent predicate
+            for entry in per_key.values() {
+                if entry.used_this_frame.load(Ordering::Acquire)
+                    && entry
+                        .video
+                        .as_ref()
+                        .as_ref()
+                        .is_ok_and(|video| !video.all_active_players_up_to_date())
+                {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
     /// Read in some video data and cache the result.
     ///
     /// You may use the `RowId` as cache key if any.

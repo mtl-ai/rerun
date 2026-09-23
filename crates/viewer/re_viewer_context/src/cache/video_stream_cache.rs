@@ -175,6 +175,29 @@ const _: () = assert!(
 pub type SharablePlayableVideoStream = Arc<RwLock<PlayableVideoStream>>;
 
 impl VideoStreamCache {
+    /// Whether every video player that was asked for a frame this frame
+    /// delivered exactly the frame that was requested of it.
+    ///
+    /// `false` means at least one active player handed out a stale fallback
+    /// texture while its async decoder catches up — i.e. the currently
+    /// rendered scene does not faithfully show the current time yet. See
+    /// [`re_renderer::video::Video::all_active_players_up_to_date`].
+    pub fn all_active_players_up_to_date(&self) -> bool {
+        #[expect(clippy::iter_over_hash_type)] // order-independent predicate
+        for entry in self.entries.values() {
+            if entry.used_this_frame.load(Ordering::Acquire)
+                && !entry
+                    .video_stream
+                    .read()
+                    .video_renderer
+                    .all_active_players_up_to_date()
+            {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Looks up a video stream + players.
     ///
     /// The first time a video stream that is looked up that isn't in the cache,

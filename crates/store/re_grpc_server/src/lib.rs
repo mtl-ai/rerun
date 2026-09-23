@@ -1060,6 +1060,21 @@ impl EventLoop {
     }
 }
 
+/// Live counters of SDK (`WriteMessages`) client connections.
+///
+/// Shared between the [`MessageProxy`] service (which updates them from the
+/// `write_messages` handler) and every [`MessageProxyHandle`] (which reads them),
+/// so embedders can observe the producer lifecycle — e.g. `rerun render --listen`
+/// ends its capture loop once the producer that fed it has disconnected.
+#[derive(Default)]
+struct WriteClientCounters {
+    /// Number of currently open `WriteMessages` streams.
+    connected: std::sync::atomic::AtomicUsize,
+
+    /// Total number of `WriteMessages` streams ever opened.
+    total: std::sync::atomic::AtomicUsize,
+}
+
 /// A cloneable handle to a running [`MessageProxy`].
 ///
 /// Used to read the proxy's most recent memory snapshot from outside the tokio
@@ -1068,6 +1083,7 @@ impl EventLoop {
 pub struct MessageProxyHandle {
     event_tx: async_mpsc_channel::Sender<Event>,
     memory_snapshot: MemorySnapshot,
+    write_clients: std::sync::Arc<WriteClientCounters>,
 }
 
 impl MessageProxyHandle {
@@ -1082,6 +1098,21 @@ impl MessageProxyHandle {
             Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => None,
         }
     }
+
+    /// Number of SDK clients with a currently open `WriteMessages` stream.
+    pub fn num_connected_write_clients(&self) -> usize {
+        self.write_clients
+            .connected
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Total number of SDK `WriteMessages` streams that were ever opened,
+    /// including ones that have since disconnected.
+    pub fn num_write_clients_ever(&self) -> usize {
+        self.write_clients
+            .total
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
 }
 
 pub struct MessageProxy {
@@ -1089,6 +1120,7 @@ pub struct MessageProxy {
     _queue_task_handle: tokio::task::JoinHandle<()>,
     event_tx: async_mpsc_channel::Sender<Event>,
     memory_snapshot: MemorySnapshot,
+    write_clients: std::sync::Arc<WriteClientCounters>,
 }
 
 impl MessageProxy {
@@ -1129,6 +1161,7 @@ impl MessageProxy {
                 _queue_task_handle: task_handle,
                 event_tx,
                 memory_snapshot,
+                write_clients: Default::default(),
             },
             broadcast_log_rx,
         )
@@ -1138,6 +1171,7 @@ impl MessageProxy {
         MessageProxyHandle {
             event_tx: self.event_tx.clone(),
             memory_snapshot: self.memory_snapshot.clone(),
+            write_clients: self.write_clients.clone(),
         }
     }
 
@@ -1258,6 +1292,27 @@ impl message_proxy_service_server::MessageProxyService for MessageProxy {
         &self,
         request: tonic::Request<tonic::Streaming<WriteMessagesRequest>>,
     ) -> tonic::Result<tonic::Response<WriteMessagesResponse>> {
+        // Count this producer for the whole lifetime of its stream; the RAII
+        // guard makes sure the connected-count drops on every exit path
+        // (clean end-of-stream, receive error, or the future being dropped).
+        struct ConnectedGuard(std::sync::Arc<WriteClientCounters>);
+
+        impl Drop for ConnectedGuard {
+            fn drop(&mut self) {
+                self.0
+                    .connected
+                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+
+        self.write_clients
+            .total
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.write_clients
+            .connected
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let _connected_guard = ConnectedGuard(self.write_clients.clone());
+
         let mut stream = request.into_inner();
         loop {
             match stream.message().await {
