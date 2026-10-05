@@ -627,7 +627,14 @@ pub(crate) fn rerun_workspace_path() -> camino::Utf8PathBuf {
         "Failed to find workspace root, expected it at {workspace_root:?}"
     );
 
-    workspace_root.canonicalize_utf8().unwrap()
+    let workspace_root = workspace_root.canonicalize_utf8().unwrap();
+
+    // On Windows, `canonicalize` returns a verbatim path (`\\?\C:\…`), which is not a prefix of
+    // the plain paths we get for the definition files, so `strip_prefix` would always fail.
+    match workspace_root.as_str().strip_prefix(r"\\?\") {
+        Some(plain) if !plain.starts_with("UNC\\") => camino::Utf8PathBuf::from(plain),
+        _ => workspace_root,
+    }
 }
 
 /// Format the path with forward slashes, even on Windows.
