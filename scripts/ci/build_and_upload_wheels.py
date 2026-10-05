@@ -36,7 +36,9 @@ def detect_target() -> str:
     arch = platform.machine()
     if arch in {"x86_64", "aarch64"}:
         pass  # leave it as is
-    elif arch == "arm64":
+    elif arch in {"AMD64", "amd64"}:  # Windows
+        arch = "x86_64"
+    elif arch in {"arm64", "ARM64"}:  # macOS / Windows
         arch = "aarch64"
     else:
         raise Exception(f"unknown architecture: {arch}")
