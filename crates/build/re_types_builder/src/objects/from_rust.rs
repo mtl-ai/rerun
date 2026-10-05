@@ -205,7 +205,8 @@ fn package_name_of(definitions_dir: &Utf8Path, filepath: &Utf8Path) -> Option<St
     if dir.as_str().is_empty() {
         return None;
     }
-    Some(dir.as_str().replace('/', "."))
+    // `Utf8Path` keeps native separators, so on Windows this contains backslashes.
+    Some(dir.as_str().replace(['/', '\\'], "."))
 }
 
 // --- Files ---
